@@ -20,9 +20,8 @@ NutriSurvey 2.0 adalah aplikasi analisis nutrisi modern berbasis web yang diranc
 - **`/Assets`**: Launcher, installer, dan aset pendukung aplikasi.
   - `NutriSurvey.vbs`: Launcher utama (popup progress, tanpa terminal).
   - `RUN.bat`: Runner backend/frontend.
-  - `INSTALL.bat`: Installer dependency (.NET 8 SDK).
-  - `template.rtf`: Template laporan Word.
   - `NutriSurvey.ico` / `logo.png`: Ikon launcher.
+  - `template.rtf`: Template laporan Word.
 
 ## Fitur Utama
 
@@ -34,10 +33,13 @@ NutriSurvey 2.0 adalah aplikasi analisis nutrisi modern berbasis web yang diranc
 
 ## Cara Menjalankan
 
-1.  **Install Dependencies**:
-    Jalankan file `Assets/INSTALL.bat`.
+1.  **Setup (sekali saja)**:
+    Jalankan file `Setup.bat`.
+    - Script akan membuat shortcut `NutriSurvey 2.0.lnk` (Desktop + folder project).
+    - Script akan cek dependency `.NET 8`; jika belum ada, script install per-user tanpa admin.
+    - Script akan menghapus dirinya sendiri setelah setup sukses.
 2.  **Run Application**:
-    Jalankan file `Launch_NutriSurvey.bat` (portable, aman dipindah path), atau `Assets/NutriSurvey.vbs`.
+    Jalankan `NutriSurvey 2.0.lnk` yang dibuat oleh setup, atau `Assets/NutriSurvey.vbs`.
     - Frontend akan berjalan di: `http://localhost:8080`
     - API Backend akan berjalan di: `http://localhost:5000`
     - Progress launcher berjalan per task: 25% (cek komponen), 50% (backend), 75% (frontend), 100% (membuka browser).
