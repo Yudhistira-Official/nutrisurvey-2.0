@@ -1,0 +1,45 @@
+# NutriSurvey 2.0
+
+NutriSurvey 2.0 adalah aplikasi analisis nutrisi modern berbasis web yang dirancang untuk menggantikan aplikasi legacy NutriSurvey.de. Aplikasi ini memungkinkan pengguna untuk melacak asupan makanan, menghitung target TDEE (Total Daily Energy Expenditure), dan menganalisis lebih dari 50 jenis mikronutrien secara akurat.
+
+## Struktur Proyek
+
+- **`/Backend`**: Web API menggunakan ASP.NET Core 8.0.
+  - **Controllers**: Endpoint untuk pencarian makanan, rekomendasi, dan kalkulasi nutrisi.
+  - **Models**: Struktur data untuk Food, Nutrient, dan FoodNutrient.
+  - **Services**: Logika import CSV dan kalkulasi TDEE.
+  - **Data**: Konteks database SQLite (Entity Framework Core).
+- **`/Frontend`**: Single-Page Application (SPA).
+  - **`index.html`**: Antarmuka pengguna utama.
+  - **`css/style.css`**: Desain responsif dengan Vanilla CSS.
+  - **`js/app.js`**: Logika state management dan kalkulasi di sisi klien.
+  - **`js/api.js`**: Client library untuk berkomunikasi dengan Backend.
+- **`/DatabaseMakanan`**: Folder penyimpanan data CSV nutrisi.
+  - `DatabaseNilaiGiziCom.csv`: Data utama berisi 3.600+ produk makanan dengan unit (ml/g) yang akurat.
+- **`/Assets`**: Launcher, installer, dan aset pendukung aplikasi.
+  - `NutriSurvey.vbs`: Launcher utama (popup progress, tanpa terminal).
+  - `RUN.bat`: Runner backend/frontend.
+  - `INSTALL.bat`: Installer dependency (.NET 8 SDK).
+  - `template.rtf`: Template laporan Word.
+  - `NutriSurvey.ico` / `logo.png`: Ikon launcher.
+
+## Fitur Utama
+
+1.  **Pencarian Makanan Cepat**: Mencari dari ribuan database makanan lokal dan internasional.
+2.  **Kalkulasi Berbasis Sajian**: Menghitung nutrisi secara dinamis berdasarkan jumlah yang diinput pengguna (mendukung satuan g dan ml).
+3.  **Rekomendasi Pintar**: Mencari makanan berdasarkan filter nutrisi tertentu (misal: "makanan dengan protein > 20g").
+4.  **Target Nutrisi Kustom**: Menghitung TDEE berdasarkan profil fisik dan aktivitas pengguna.
+5.  **Ekspor Laporan**: (In Progress) Mengekspor hasil analisis harian ke format Microsoft Word.
+
+## Cara Menjalankan
+
+1.  **Install Dependencies**:
+    Jalankan file `Assets/INSTALL.bat`.
+2.  **Run Application**:
+    Jalankan file `NutriSurvey.lnk` (icon kustom, mode tanpa terminal), atau `Assets/NutriSurvey.vbs`.
+    - Frontend akan berjalan di: `http://localhost:8080`
+    - API Backend akan berjalan di: `http://localhost:5000`
+    - Progress launcher berjalan per task: 25% (cek komponen), 50% (backend), 75% (frontend), 100% (membuka browser).
+
+## Database
+Database SQLite (`nutrition.db`) akan dibuat secara otomatis saat pertama kali backend dijalankan dan akan mengimpor data dari folder `DatabaseMakanan`.

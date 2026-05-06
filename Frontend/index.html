@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NutriSurvey Pro 2.0</title>
+    <link rel="stylesheet" href="css/style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+</head>
+<body>
+    <div id="app-container">
+        <!-- Sidebar -->
+        <nav id="sidebar">
+            <div class="sidebar-header">
+                <h2>NutriSurvey <span class="highlight">Pro</span></h2>
+            </div>
+            <ul class="nav-links">
+                <li onclick="showSection('dashboard')" id="nav-dashboard" class="active"><i class="fas fa-chart-line"></i> Dashboard</li>
+                <li onclick="showSection('rekomendasi')" id="nav-rekomendasi"><i class="fas fa-lightbulb"></i> Rekomendasi</li>
+                <li onclick="showSection('tdee')" id="nav-tdee"><i class="fas fa-calculator"></i> Kalkulator TDEE</li>
+                <li class="separator"></li>
+                <li onclick="exportProject()"><i class="fas fa-save"></i> Simpan Proyek</li>
+                <li onclick="document.getElementById('import-project').click()"><i class="fas fa-folder-open"></i> Buka Proyek</li>
+                <li onclick="exportToWord()"><i class="fas fa-file-word"></i> Word Report</li>
+            </ul>
+            <input type="file" id="import-project" style="display:none" accept=".nutri" onchange="importProject(event)">
+        </nav>
+
+        <!-- Main Content -->
+        <main id="main-content">
+            <header class="top-bar">
+                <div class="search-bar">
+                    <i class="fas fa-search"></i>
+                    <input type="text" placeholder="Cari fitur atau makanan...">
+                </div>
+                <div class="user-profile">
+                    <button class="btn-icon"><i class="fas fa-bell"></i></button>
+                    <button class="btn-icon"><i class="fas fa-user-circle"></i></button>
+                </div>
+            </header>
+
+            <!-- Dashboard -->
+            <section id="dashboard" class="section-fade">
+                <div class="section-header">
+                    <h2>Manajemen Menu</h2>
+                    <button onclick="openMealSectionModal()" class="btn-primary">+ Waktu Makan</button>
+                </div>
+                
+                <div class="dashboard-grid">
+                    <div class="card table-container-wrapper">
+                        <h3>Daftar Konsumsi</h3>
+                        <table id="food-table">
+                            <thead>
+                                <tr>
+                                    <th>Nama Makanan</th>
+                                    <th>(g)</th>
+                                    <th>kcal</th>
+                                    <th>Carb</th>
+                                    <th>Prot</th>
+                                    <th>Fat</th>
+                                    <th></th>
+                                </tr>
+                            </thead>
+                            <tbody id="food-list-body"></tbody>
+                        </table>
+                    </div>
+
+                    <div class="analysis-panel">
+                        <div class="card" style="margin-bottom: 24px;">
+                            <h3><i class="fas fa-vial"></i> Makronutrien</h3>
+                            <div class="nutrient-section">
+                                <div class="summary-item"><span>Energi</span> <span id="total-kcal">0</span></div>
+                                <div class="progress-container"><div class="progress-bar" id="progress-kcal" style="width: 0%; background: #006D37"></div></div>
+                                
+                                <div class="summary-item"><span>Karbohidrat</span> <span id="total-carbs">0</span></div>
+                                <div class="progress-container"><div class="progress-bar" id="progress-carbs" style="width: 0%; background: #3498db"></div></div>
+                                
+                                <div class="summary-item"><span>Protein</span> <span id="total-protein">0</span></div>
+                                <div class="progress-container"><div class="progress-bar" id="progress-protein" style="width: 0%; background: #e74c3c"></div></div>
+                                
+                                <div class="summary-item"><span>Lemak</span> <span id="total-fat">0</span></div>
+                                <div class="progress-container"><div class="progress-bar" id="progress-fat" style="width: 0%; background: #f1c40f"></div></div>
+                            </div>
+                        </div>
+
+                        <div class="card">
+                            <h3>Mikronutrien</h3>
+                            <div id="micro-nutrient-section">
+                                <!-- Dinamis -->
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Rekomendasi -->
+            <section id="rekomendasi" class="hidden section-fade">
+                <div class="section-header">
+                    <h2>Rekomendasi Makanan</h2>
+                </div>
+                <div class="dashboard-grid">
+                    <div class="card">
+                        <h3>Filter Nutrisi</h3>
+                        <div id="filter-container">
+                            <!-- Dropdown & Input dinamis di JS -->
+                        </div>
+                        <button onclick="addFilterRow()" class="btn-add">+ Filter</button>
+                        <div style="margin-top: 30px;">
+                            <button onclick="fetchRecommendations()" class="btn-primary" style="width: 100%;">Cari Rekomendasi</button>
+                        </div>
+                    </div>
+                    <div class="card" id="rec-results">
+                        <h3>Hasil Rekomendasi</h3>
+                        <div id="rec-list"></div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- TDEE -->
+            <section id="tdee" class="hidden section-fade">
+                <div class="section-header"><h2>Kalkulator TDEE & Target Nutrisi</h2></div>
+                <div class="dashboard-grid">
+                    <div class="card">
+                        <h3>Data Fisik & Klinis</h3>
+                        <div class="tdee-form">
+                            <label>Jenis Kelamin</label>
+                            <select id="tdee-gender">
+                                <option value="Male">Laki-laki</option>
+                                <option value="Female">Perempuan</option>
+                            </select>
+                            
+                            <label>Berat Badan (kg)</label>
+                            <input type="number" id="tdee-weight" value="70">
+                            
+                            <label>Tinggi Badan (cm)</label>
+                            <input type="number" id="tdee-height" value="170">
+                            
+                            <label>Usia (tahun)</label>
+                            <input type="number" id="tdee-age" value="25">
+
+                            <label style="margin-top: 15px; display: block;">Faktor Aktivitas (AF)</label>
+                            <div style="display: flex; gap: 10px; margin-bottom: 10px;">
+                                <select id="tdee-af-select" onchange="document.getElementById('tdee-af-manual').value = this.value">
+                                    <option value="1.2">Bed rest (1.2)</option>
+                                    <option value="1.3">Ringan (1.3)</option>
+                                    <option value="1.5">Sedang (1.5)</option>
+                                    <option value="1.7">Berat (1.7)</option>
+                                </select>
+                                <input type="number" id="tdee-af-manual" value="1.2" step="0.1" style="width: 80px;">
+                            </div>
+                            
+                            <label>Faktor Cedera (IF)</label>
+                            <div style="display: flex; gap: 10px;">
+                                <select id="tdee-if-select" onchange="document.getElementById('tdee-if-manual').value = this.value">
+                                    <option value="1.0">Normal (1.0)</option>
+                                    <option value="1.2">Operasi/Minor (1.2)</option>
+                                    <option value="1.3">Trauma/Sepsis (1.3)</option>
+                                    <option value="1.5">Luka Bakar (1.5)</option>
+                                </select>
+                                <input type="number" id="tdee-if-manual" value="1.0" step="0.1" style="width: 80px;">
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="card">
+                        <h3>Distribusi Makronutrien (%)</h3>
+                        <div class="tdee-form">
+                            <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px;">
+                                <div><small>Karbo</small><input type="number" id="target-perc-carbs" value="50" onchange="validatePerc()"></div>
+                                <div><small>Protein</small><input type="number" id="target-perc-protein" value="20" onchange="validatePerc()"></div>
+                                <div><small>Lemak</small><input type="number" id="target-perc-fat" value="30" onchange="validatePerc()"></div>
+                            </div>
+                            <div id="perc-error" style="color: red; font-size: 0.8rem; margin-top: 5px; display: none;">Total harus 100%!</div>
+                            
+                            <button onclick="calculateAndApplyTargets()" class="btn-primary" style="margin-top: 24px; width: 100%;">Hitung & Terapkan</button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card" id="tdee-results" style="margin-top: 32px; display: none;">
+                    <h3>Hasil Kalkulasi</h3>
+                    <div class="dashboard-grid" style="grid-template-columns: repeat(4, 1fr);">
+                        <div class="summary-item" style="flex-direction: column; align-items: center; text-align: center;">
+                            <span style="font-size: 0.9rem; color: #666;">TDEE</span>
+                            <strong id="res-tdee" style="font-size: 1.5rem; color: var(--primary);">0 kcal</strong>
+                        </div>
+                        <div class="summary-item" style="flex-direction: column; align-items: center; text-align: center;">
+                            <span style="font-size: 0.9rem; color: #666;">Target Karbo</span>
+                            <strong id="res-carbs" style="font-size: 1.5rem; color: #3498db;">0 g</strong>
+                        </div>
+                        <div class="summary-item" style="flex-direction: column; align-items: center; text-align: center;">
+                            <span style="font-size: 0.9rem; color: #666;">Target Protein</span>
+                            <strong id="res-protein" style="font-size: 1.5rem; color: #e74c3c;">0 g</strong>
+                        </div>
+                        <div class="summary-item" style="flex-direction: column; align-items: center; text-align: center;">
+                            <span style="font-size: 0.9rem; color: #666;">Target Lemak</span>
+                            <strong id="res-fat" style="font-size: 1.5rem; color: #f1c40f;">0 g</strong>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+        </main>
+    </div>
+
+    <!-- Modals -->
+    <div id="food-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>Cari Makanan</h3>
+                <button class="btn-icon" onclick="closeFoodModal()"><i class="fas fa-times"></i></button>
+            </div>
+            <div class="modal-body">
+                <input type="text" id="food-modal-search" onkeyup="debounceModalSearch()" placeholder="Ketik nama makanan...">
+                <div id="modal-search-results" style="margin-top: 20px; max-height: 300px; overflow-y: auto;"></div>
+            </div>
+        </div>
+    </div>
+
+    <div id="meal-modal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>Tambah Waktu Makan</h3>
+                <button class="btn-icon" onclick="document.getElementById('meal-modal').classList.remove('active')"><i class="fas fa-times"></i></button>
+            </div>
+            <div class="modal-body">
+                <input type="text" id="new-meal-name" placeholder="Contoh: Snack Sore">
+                <button onclick="createNewMealSection()" class="btn-primary" style="margin-top: 20px; width: 100%;">Tambah</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/sortablejs@latest/Sortable.min.js"></script>
+    <script src="js/api.js"></script>
+    <script src="js/app.js"></script>
+    <div id="sidebar-overlay" onclick="toggleSidebar()"></div>
+    <button id="hamburger-btn" onclick="toggleSidebar()"><i class="fas fa-bars"></i></button>
+</body>
+</html>
