@@ -7,3 +7,5 @@ obj/
 Backend/Data/MasterDatabases/
 Backend/bin/
 Backend/obj/
+Installer/
+Setup.exe

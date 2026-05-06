@@ -34,10 +34,10 @@ NutriSurvey 2.0 adalah aplikasi analisis nutrisi modern berbasis web yang diranc
 ## Cara Menjalankan
 
 1.  **Setup (sekali saja)**:
-    Jalankan file `Setup.bat`.
-    - Script akan membuat shortcut `NutriSurvey 2.0.lnk` (Desktop + folder project).
-    - Script akan cek dependency `.NET 8`; jika belum ada, script install per-user tanpa admin.
-    - Script akan menghapus dirinya sendiri setelah setup sukses.
+    Jalankan file `Setup.exe` (Run as Administrator).
+    - Installer akan membuat shortcut `NutriSurvey 2.0.lnk` (Desktop + folder project).
+    - Installer akan cek dependency `.NET 8`; jika belum ada, installer akan menginstal .NET 8 SDK.
+    - Setelah selesai, installer menampilkan popup sukses.
 2.  **Run Application**:
     Jalankan `NutriSurvey 2.0.lnk` yang dibuat oleh setup, atau `Assets/NutriSurvey.vbs`.
     - Frontend akan berjalan di: `http://localhost:8080`
