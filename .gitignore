@@ -1,0 +1,9 @@
+bin/
+obj/
+**/bin/
+**/obj/
+*.db
+*.lnk
+Backend/Data/MasterDatabases/
+Backend/bin/
+Backend/obj/

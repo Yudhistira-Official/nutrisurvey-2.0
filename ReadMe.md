@@ -15,7 +15,8 @@ NutriSurvey 2.0 adalah aplikasi analisis nutrisi modern berbasis web yang diranc
   - **`js/app.js`**: Logika state management dan kalkulasi di sisi klien.
   - **`js/api.js`**: Client library untuk berkomunikasi dengan Backend.
 - **`/DatabaseMakanan`**: Folder penyimpanan data CSV nutrisi.
-  - `DatabaseNilaiGiziCom.csv`: Data utama berisi 3.600+ produk makanan dengan unit (ml/g) yang akurat.
+  - `DatabaseNilaiGiziCom.csv`: Data makanan referensi dengan format delimiter `;`.
+  - `DatabaseFatSecret.csv`: Data makanan tambahan dengan format delimiter `,`.
 - **`/Assets`**: Launcher, installer, dan aset pendukung aplikasi.
   - `NutriSurvey.vbs`: Launcher utama (popup progress, tanpa terminal).
   - `RUN.bat`: Runner backend/frontend.
@@ -42,4 +43,7 @@ NutriSurvey 2.0 adalah aplikasi analisis nutrisi modern berbasis web yang diranc
     - Progress launcher berjalan per task: 25% (cek komponen), 50% (backend), 75% (frontend), 100% (membuka browser).
 
 ## Database
-Database SQLite (`nutrition.db`) akan dibuat secara otomatis saat pertama kali backend dijalankan dan akan mengimpor data dari folder `DatabaseMakanan`.
+Database SQLite (`nutrition.db`) dibuat otomatis saat backend pertama kali dijalankan. Saat tabel `Foods` masih kosong, backend akan memindai semua file CSV di folder `DatabaseMakanan` lalu mengimpor datanya.
+
+## Catatan Repository
+- File hasil build (`bin/`, `obj/`), database lokal (`*.db`), file shortcut (`*.lnk`), dan data upload runtime (`Backend/Data/MasterDatabases/`) tidak disarankan untuk dipublikasikan ke repository.
