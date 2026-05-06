@@ -4,7 +4,6 @@ obj/
 **/obj/
 *.db
 *.lnk
-!NutriSurvey.lnk
 Backend/Data/MasterDatabases/
 Backend/bin/
 Backend/obj/
