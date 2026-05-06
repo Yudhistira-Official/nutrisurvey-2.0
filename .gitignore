@@ -3,6 +3,8 @@ obj/
 **/bin/
 **/obj/
 *.db
+*.db-shm
+*.db-wal
 *.lnk
 Backend/Data/MasterDatabases/
 Backend/bin/

@@ -1,7 +1,7 @@
 Option Explicit
 
 Dim shell, fso
-Dim baseDir, batPath, installPath, htaPath
+Dim baseDir, batPath, htaPath
 Dim readyPath, step1Path, step2Path, step3Path, step4Path
 Dim htaProc, htaPid
 Dim ready, i
@@ -11,7 +11,6 @@ Set fso = CreateObject("Scripting.FileSystemObject")
 
 baseDir = fso.GetParentFolderName(fso.GetParentFolderName(WScript.ScriptFullName))
 batPath = baseDir & "\Assets\RUN.bat"
-installPath = baseDir & "\Assets\INSTALL.bat"
 htaPath = baseDir & "\Assets\loading.hta"
 readyPath = baseDir & "\Assets\launch.ready"
 step1Path = baseDir & "\Assets\launch.step1"
@@ -22,12 +21,8 @@ step4Path = baseDir & "\Assets\launch.step4"
 CleanupMarkers
 
 If Not IsDependencyReady() Then
-    MsgBox ".NET 8 belum terdeteksi. Installer akan dijalankan.", 64, "NutriSurvey 2.0"
-    shell.Run Chr(34) & installPath & Chr(34), 1, True
-    If Not IsDependencyReady() Then
-        MsgBox "Dependensi belum siap. Jalankan installer sampai selesai, lalu buka Assets\\NutriSurvey.vbs lagi.", 48, "NutriSurvey 2.0"
-        WScript.Quit 1
-    End If
+    MsgBox ".NET 8 belum terdeteksi. Jalankan Setup.exe terlebih dahulu, lalu buka NutriSurvey 2.0.lnk lagi.", 48, "NutriSurvey 2.0"
+    WScript.Quit 1
 End If
 
 WriteLoaderHta
@@ -132,9 +127,19 @@ End Function
 
 Function IsDependencyReady()
     On Error Resume Next
-    Dim code
+    Dim code, pfDotnet, localDotnet
     code = shell.Run("cmd /c dotnet --version >nul 2>&1", 0, True)
-    IsDependencyReady = (Err.Number = 0 And code = 0)
+    If Err.Number = 0 And code = 0 Then
+        IsDependencyReady = True
+        Err.Clear
+        On Error GoTo 0
+        Exit Function
+    End If
+
+    Err.Clear
+    pfDotnet = shell.ExpandEnvironmentStrings("%ProgramFiles%") & "\dotnet\dotnet.exe"
+    localDotnet = shell.ExpandEnvironmentStrings("%LocalAppData%") & "\Microsoft\dotnet\dotnet.exe"
+    IsDependencyReady = fso.FileExists(pfDotnet) Or fso.FileExists(localDotnet)
     Err.Clear
     On Error GoTo 0
 End Function
