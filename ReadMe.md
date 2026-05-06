@@ -37,7 +37,7 @@ NutriSurvey 2.0 adalah aplikasi analisis nutrisi modern berbasis web yang diranc
 1.  **Install Dependencies**:
     Jalankan file `Assets/INSTALL.bat`.
 2.  **Run Application**:
-    Jalankan file `NutriSurvey.lnk` (icon kustom, mode tanpa terminal), atau `Assets/NutriSurvey.vbs`.
+    Jalankan file `Launch_NutriSurvey.bat` (portable, aman dipindah path), atau `Assets/NutriSurvey.vbs`.
     - Frontend akan berjalan di: `http://localhost:8080`
     - API Backend akan berjalan di: `http://localhost:5000`
     - Progress launcher berjalan per task: 25% (cek komponen), 50% (backend), 75% (frontend), 100% (membuka browser).
