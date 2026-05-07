@@ -33,9 +33,9 @@ htaPid = htaProc.ProcessID
 shell.Run Chr(34) & batPath & Chr(34), 0, False
 
 ready = False
-For i = 1 To 120
+For i = 1 To 900
     WScript.Sleep 1000
-    If IsUrlReady("http://localhost:8080") Then
+    If fso.FileExists(readyPath) Then
         ready = True
         Exit For
     End If
@@ -87,7 +87,7 @@ Sub WriteLoaderHta()
         ".stage{margin-top:8px;font-size:13px;color:#3c6d55;}" & _
         "</style>" & _
         "<script>function setPct(v){document.getElementById('fill').style.width=v+'%';document.getElementById('pct').innerText=v+' %';" & _
-        "var st='Menyiapkan...';if(v===25)st='Task 1/4: cek komponen';if(v===50)st='Task 2/4: backend jalan';if(v===75)st='Task 3/4: frontend jalan';if(v===100)st='Task 4/4: membuka browser';document.getElementById('stage').innerText=st;}" & _
+        "var st='Menyiapkan...';if(v===25)st='Task 1/4: build dan start backend';if(v===50)st='Task 2/4: import database makanan';if(v===75)st='Task 3/4: start frontend';if(v===100)st='Task 4/4: membuka browser';document.getElementById('stage').innerText=st;}" & _
         "var BASE='" & markerBaseJs & "';" & _
         "function chk(){try{var fso=new ActiveXObject('Scripting.FileSystemObject');var p=0;if(fso.FileExists(BASE+'\\\\launch.step1'))p=25;if(fso.FileExists(BASE+'\\\\launch.step2'))p=50;if(fso.FileExists(BASE+'\\\\launch.step3'))p=75;if(fso.FileExists(BASE+'\\\\launch.step4'))p=100;" & _
         "if(fso.FileExists(BASE+'\\\\launch.ready')){setPct(100);setTimeout(function(){window.close();},350);return;}setPct(p);}catch(e){document.getElementById('stage').innerText='Menunggu proses...';}}" & _

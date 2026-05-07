@@ -55,6 +55,13 @@ namespace NutritionApp.Controllers
             return Ok(results);
         }
 
+        [HttpGet("status")]
+        public async Task<IActionResult> GetDatabaseStatus()
+        {
+            var foodCount = await _context.Foods.CountAsync();
+            return Ok(new { foodCount, isReady = foodCount > 0 });
+        }
+
         [HttpPost("recommendations")]
         public async Task<IActionResult> GetRecommendations([FromBody] List<FilterDto> filters)
         {
