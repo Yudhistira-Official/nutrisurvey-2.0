@@ -34,9 +34,12 @@ NutriSurvey 2.0 adalah aplikasi analisis nutrisi modern berbasis web yang diranc
 ## Cara Menjalankan
 
 1.  **Setup (sekali saja)**:
-    Jalankan file `Setup.exe` (Run as Administrator).
-    - Installer akan membuat shortcut `NutriSurvey 2.0.lnk` (Desktop + folder project).
-    - Installer akan cek dependency `.NET 8`; jika belum ada, installer akan menginstal .NET 8 SDK.
+    Unduh `Setup.exe` dari GitHub Release, lalu jalankan sebagai Administrator.
+    - Installer akan mengunduh project terbaru dari GitHub dan memasangnya ke `C:\NutriSurvey2.0`.
+    - Jika folder `C:\NutriSurvey2.0` tidak dapat ditulis, installer memakai fallback `%LocalAppData%\NutriSurvey2.0`.
+    - Installer akan membuat shortcut `NutriSurvey 2.0.lnk` di Desktop dan folder install.
+    - Installer akan cek `.NET SDK 8.0.420` beserta runtime `Microsoft.AspNetCore.App 8.0.26`, `Microsoft.NETCore.App 8.0.26`, dan `Microsoft.WindowsDesktop.App 8.0.26`.
+    - Jika dependency belum ada, installer akan mengunduh dan menginstall .NET dengan tampilan progress.
     - Setelah selesai, installer menampilkan popup sukses.
 2.  **Run Application**:
     Jalankan `NutriSurvey 2.0.lnk` yang dibuat oleh setup, atau `Assets/NutriSurvey.vbs`.
@@ -45,7 +48,7 @@ NutriSurvey 2.0 adalah aplikasi analisis nutrisi modern berbasis web yang diranc
     - Progress launcher berjalan per task: 25% (cek komponen), 50% (backend), 75% (frontend), 100% (membuka browser).
 
 ## Database
-Database SQLite (`nutrition.db`) dibuat otomatis saat backend pertama kali dijalankan. Saat tabel `Foods` masih kosong, backend akan memindai semua file CSV di folder `DatabaseMakanan` lalu mengimpor datanya.
+Database SQLite (`nutrition.db`) dibuat otomatis saat backend pertama kali dijalankan. Saat tabel `Foods` masih kosong, backend akan memindai semua file CSV di folder `DatabaseMakanan` lalu mengimpor datanya di background agar API tetap bisa mulai berjalan. Pada pemakaian pertama, pencarian makanan dapat kosong sementara sampai proses import selesai.
 
 ## Catatan Repository
 - File hasil build (`bin/`, `obj/`), database lokal (`*.db`), file shortcut (`*.lnk`), dan data upload runtime (`Backend/Data/MasterDatabases/`) tidak disarankan untuk dipublikasikan ke repository.
