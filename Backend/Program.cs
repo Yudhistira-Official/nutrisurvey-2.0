@@ -28,46 +28,56 @@ builder.Services.AddCors(options =>
 
 var app = builder.Build();
 
-// Ensure the database and tables are created automatically on startup
+// Ensure the database and tables are created automatically on startup.
 using (var scope = app.Services.CreateScope())
 {
     var services = scope.ServiceProvider;
     var dbContext = services.GetRequiredService<AppDbContext>();
     dbContext.Database.EnsureCreated();
+}
 
-    // Auto-seed from DatabaseMakanan/nilaigizi_clean.csv if empty
-    var foodCount = dbContext.Foods.Count();
-    Console.WriteLine($"Current food count in database: {foodCount}");
-
-    if (foodCount == 0)
+app.Lifetime.ApplicationStarted.Register(() =>
+{
+    _ = Task.Run(async () =>
     {
-        var importService = services.GetRequiredService<ICsvImportService>();
-        
-        string directoryPath = Path.Combine(Directory.GetCurrentDirectory(), "DatabaseMakanan");
-        if (!Directory.Exists(directoryPath))
-        {
-            directoryPath = Path.GetFullPath(Path.Combine(Directory.GetCurrentDirectory(), "..", "DatabaseMakanan"));
-        }
+        using var scope = app.Services.CreateScope();
+        var services = scope.ServiceProvider;
+        var dbContext = services.GetRequiredService<AppDbContext>();
 
-        if (Directory.Exists(directoryPath))
+        // Auto-seed in background so API can start responding immediately.
+        var foodCount = await dbContext.Foods.CountAsync();
+        Console.WriteLine($"Current food count in database: {foodCount}");
+
+        if (foodCount == 0)
         {
-            var csvFiles = Directory.GetFiles(directoryPath, "*.csv", SearchOption.AllDirectories);
-            foreach (var csvPath in csvFiles)
+            var importService = services.GetRequiredService<ICsvImportService>();
+
+            string directoryPath = Path.Combine(Directory.GetCurrentDirectory(), "DatabaseMakanan");
+            if (!Directory.Exists(directoryPath))
             {
-                Console.WriteLine($"Importing from {csvPath}...");
-                try 
+                directoryPath = Path.GetFullPath(Path.Combine(Directory.GetCurrentDirectory(), "..", "DatabaseMakanan"));
+            }
+
+            if (Directory.Exists(directoryPath))
+            {
+                var csvFiles = Directory.GetFiles(directoryPath, "*.csv", SearchOption.AllDirectories);
+                foreach (var csvPath in csvFiles)
                 {
-                    var count = importService.ImportFromFileAsync(csvPath).GetAwaiter().GetResult();
-                    Console.WriteLine($"Imported {count} items from {Path.GetFileName(csvPath)}.");
-                }
-                catch (Exception ex)
-                {
-                    Console.WriteLine($"Error importing {Path.GetFileName(csvPath)}: {ex.Message}");
+                    Console.WriteLine($"Importing from {csvPath}...");
+                    try
+                    {
+                        var count = await importService.ImportFromFileAsync(csvPath);
+                        Console.WriteLine($"Imported {count} items from {Path.GetFileName(csvPath)}.");
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"Error importing {Path.GetFileName(csvPath)}: {ex.Message}");
+                    }
                 }
             }
         }
-    }
-}
+    });
+});
 
 app.UseCors("AllowFrontend");
 app.UseAuthorization();

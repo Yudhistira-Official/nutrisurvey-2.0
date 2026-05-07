@@ -12,7 +12,7 @@ echo.
 dotnet --version >nul 2>&1
 if %errorlevel% neq 0 (
     echo [ERROR] .NET 8 SDK tidak ditemukan.
-    echo Harap jalankan Assets\INSTALL.bat terlebih dahulu.
+    echo Harap jalankan Setup.exe terlebih dahulu.
     pause
     exit /b
 )
