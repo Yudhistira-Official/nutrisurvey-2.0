@@ -14,6 +14,8 @@ builder.Services.AddDbContext<AppDbContext>(options =>
 // Register Services for Dependency Injection
 builder.Services.AddScoped<ICsvImportService, CsvImportService>();
 builder.Services.AddScoped<INutritionCalculatorService, NutritionCalculatorService>();
+builder.Services.AddHttpClient<IAIService, AIService>();
+builder.Services.AddScoped<IMealMappingService, MealMappingService>();
 
 // Configure CORS for Frontend (allow access from port 8080)
 builder.Services.AddCors(options =>

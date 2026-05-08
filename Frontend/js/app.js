@@ -8,6 +8,7 @@ let activeMealTimes = [
 let targets = { kcal: 0, carbs: 0, protein: 0, fat: 0 };
 let nutrientMetadata = [];
 let filters = [];
+let aiPreviewRows = [];
 
 function generateMealId() {
     return `MEAL_${Date.now()}_${Math.floor(Math.random() * 100000)}`;
@@ -449,6 +450,186 @@ async function importCsv() {
     } catch (e) { showToast('Gagal impor database', 'error'); }
 }
 
+function getDefaultAiBaseUrl(provider) {
+    const normalized = (provider || '').toLowerCase();
+    if (normalized === 'openrouter') return 'https://openrouter.ai/api/v1';
+    if (normalized === 'openai') return 'https://api.openai.com/v1';
+    if (normalized === 'google') return 'https://generativelanguage.googleapis.com/v1beta';
+    if (normalized === 'anthropic') return 'https://api.anthropic.com/v1';
+    return '';
+}
+
+function toggleAiBaseUrlField() {
+    const provider = document.getElementById('aiProvider')?.value;
+    const field = document.getElementById('aiBaseUrlField');
+    if (!field) return;
+    field.style.display = provider === 'custom' ? 'flex' : 'none';
+}
+
+function startAiProgress() {
+    const container = document.getElementById('aiProgressContainer');
+    const bar = document.getElementById('aiProgressBar');
+    const text = document.getElementById('aiProgressText');
+    const messages = [
+        'Menghitung makro harian...',
+        'Mencari kecocokan di database SQLite...',
+        'Memastikan porsi presisi...',
+        'Menyeimbangkan karbohidrat, protein, dan lemak...',
+        'Menyusun menu sesuai kategori makan...',
+        'Memvalidasi makanan agar tidak halusinasi...'
+    ];
+    let width = 0;
+    let messageIndex = 0;
+
+    container.style.display = 'block';
+    bar.style.width = '0%';
+    bar.classList.remove('is-complete');
+    bar.classList.add('is-running');
+    text.innerText = 'Menyiapkan request AI...';
+
+    const widthInterval = setInterval(() => {
+        width += (99 - width) * 0.015;
+        bar.style.width = `${width}%`;
+    }, 500);
+
+    const textInterval = setInterval(() => {
+        text.innerText = messages[messageIndex % messages.length];
+        messageIndex += 1;
+    }, 3500);
+
+    return { widthInterval, textInterval };
+}
+
+function finishAiProgress(progressHandle, message, complete = true) {
+    const bar = document.getElementById('aiProgressBar');
+    const text = document.getElementById('aiProgressText');
+    if (progressHandle) {
+        clearInterval(progressHandle.widthInterval);
+        clearInterval(progressHandle.textInterval);
+    }
+    if (complete) bar.style.width = '100%';
+    bar.classList.remove('is-running');
+    if (complete) bar.classList.add('is-complete');
+    text.innerText = message;
+}
+
+function buildAiDashboardNutrients(item) {
+    const nutrients = { ...(item.nutrients || {}) };
+    nutrients.energi = toNumber(item.calories);
+    nutrients.protein = toNumber(item.protein);
+    nutrients['lemak total'] = toNumber(item.fat);
+    nutrients['karbohidrat total'] = toNumber(item.carbohydrate);
+    return nutrients;
+}
+
+function implementAiPlanToDashboard() {
+    if (aiPreviewRows.length === 0) return showToast('Belum ada plan AI yang siap diimplementasikan', 'error');
+
+    let addedCount = 0;
+    const unmatchedMealTypes = new Set();
+
+    aiPreviewRows.forEach(item => {
+        const mealType = (item.meal_type || '').trim().toLowerCase();
+        const meal = activeMealTimes.find(m => (m.label || '').trim().toLowerCase() === mealType);
+        if (!meal) {
+            unmatchedMealTypes.add(item.meal_type || '-');
+            return;
+        }
+
+        const suggestedGrams = toNumber(item.suggested_grams) || 100;
+        currentSessionFoods.push({
+            id: Date.now() + Math.random(),
+            sourceFoodId: item.matched_food_id,
+            name: item.matched_food_name || item.requested_keyword || 'AI Food',
+            amount: suggestedGrams,
+            servingSize: suggestedGrams,
+            servingUnit: 'g',
+            mealTime: meal.id,
+            nutrients: buildAiDashboardNutrients(item)
+        });
+        addedCount += 1;
+    });
+
+    if (addedCount === 0) return showToast('Tidak ada item AI yang cocok dengan kategori Dashboard', 'error');
+
+    renderTable();
+    showSection('dashboard');
+    showToast(`${addedCount} item AI diimplementasikan ke Dashboard`);
+
+    if (unmatchedMealTypes.size > 0) {
+        showToast(`Kategori AI tidak cocok: ${Array.from(unmatchedMealTypes).join(', ')}`, 'error');
+    }
+}
+
+async function generateAiMealPlan() {
+    const provider = document.getElementById('aiProvider').value;
+    const model = document.getElementById('aiModel').value.trim();
+    const baseUrlInput = document.getElementById('aiBaseUrl').value.trim();
+    const apiKey = document.getElementById('aiApiKey').value.trim();
+    const availableMealTypes = activeMealTimes.map(meal => meal.label).filter(Boolean);
+
+    if (!model) return showToast('Model AI wajib diisi', 'error');
+    if (!targets.kcal || targets.kcal <= 0) return showToast('Hitung TDEE terlebih dahulu sebelum memakai AI', 'error');
+    if (!targets.carbs || !targets.protein || !targets.fat) return showToast('Target makro belum valid. Hitung TDEE terlebih dahulu.', 'error');
+    if (availableMealTypes.length === 0) return showToast('Minimal harus ada 1 kategori waktu makan di Dashboard', 'error');
+    if (!apiKey) return showToast('API Key wajib diisi untuk provider ini', 'error');
+
+    const baseUrl = baseUrlInput || getDefaultAiBaseUrl(provider);
+    if (!baseUrl) return showToast('Base URL wajib diisi untuk custom router', 'error');
+
+    const loading = document.getElementById('aiLoadingIndicator');
+    const wrapper = document.getElementById('aiResultContainerWrapper');
+    const tbody = document.getElementById('aiResultBody');
+    const button = document.getElementById('btnGenerateAI');
+    const actionArea = document.getElementById('aiActionArea');
+    let progressInterval = null;
+
+    loading.classList.remove('hidden');
+    wrapper.classList.add('hidden');
+    actionArea.style.display = 'none';
+    aiPreviewRows = [];
+    button.disabled = true;
+    progressInterval = startAiProgress();
+
+    try {
+        const rows = await api.generateAiMenu({
+            targetTDEE: Math.round(targets.kcal),
+            targetCarbs: Math.round(targets.carbs),
+            targetProtein: Math.round(targets.protein),
+            targetFat: Math.round(targets.fat),
+            availableMealTypes,
+            aiConfig: { provider, model, apiKey, baseUrl }
+        });
+        aiPreviewRows = rows;
+
+        tbody.innerHTML = rows.map(item => `
+            <tr>
+                <td>${item.meal_type || '-'}</td>
+                <td>${item.matched_food_name || item.requested_keyword || '-'}</td>
+                <td>${toNumber(item.suggested_grams).toFixed(0)}</td>
+                <td>${toNumber(item.calories).toFixed(1)}</td>
+                <td>${toNumber(item.protein).toFixed(1)}</td>
+                <td>${toNumber(item.fat).toFixed(1)}</td>
+                <td>${toNumber(item.carbohydrate).toFixed(1)}</td>
+                <td>${item.reasoning || '-'}</td>
+            </tr>
+        `).join('');
+
+        finishAiProgress(progressInterval, 'Selesai. Menampilkan hasil...');
+        loading.classList.add('hidden');
+        wrapper.classList.remove('hidden');
+        actionArea.style.display = rows.length > 0 ? 'block' : 'none';
+        showToast(`AI menu selesai: ${rows.length} item`);
+    } catch (e) {
+        finishAiProgress(progressInterval, 'Gagal memproses AI', false);
+        actionArea.style.display = 'none';
+        aiPreviewRows = [];
+        showToast(e.message || 'Gagal generate AI menu', 'error');
+    } finally {
+        button.disabled = false;
+    }
+}
+
 function openMealSectionModal() { document.getElementById('meal-modal').classList.add('active'); }
 function createNewMealSection() {
     const name = document.getElementById('new-meal-name').value.trim();
@@ -484,4 +665,15 @@ function showToast(msg, type = 'success') {
     setTimeout(() => toast.remove(), 3000);
 }
 
-window.onload = async () => { await loadNutrientMetadata(); renderTable(); addFilterRow(); };
+window.onload = async () => {
+    await loadNutrientMetadata();
+    renderTable();
+    addFilterRow();
+    toggleAiBaseUrlField();
+    const aiProvider = document.getElementById('aiProvider');
+    if (aiProvider) aiProvider.addEventListener('change', toggleAiBaseUrlField);
+    const aiButton = document.getElementById('btnGenerateAI');
+    if (aiButton) aiButton.addEventListener('click', generateAiMealPlan);
+    const implementButton = document.getElementById('btnImplementToDashboard');
+    if (implementButton) implementButton.addEventListener('click', implementAiPlanToDashboard);
+};

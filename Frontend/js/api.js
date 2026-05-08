@@ -33,6 +33,25 @@ const api = {
         return await response.json();
     },
 
+    async generateAiMenu(data) {
+        const response = await fetch(`${API_BASE}/AI/generate-menu`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data)
+        });
+
+        if (!response.ok) {
+            let message = 'AI menu generation failed';
+            try {
+                const error = await response.json();
+                message = error.message || message;
+            } catch (_) { }
+            throw new Error(message);
+        }
+
+        return await response.json();
+    },
+
     async exportToWord(projectData) {
         const response = await fetch(`${API_BASE}/Export/word`, {
             method: 'POST',

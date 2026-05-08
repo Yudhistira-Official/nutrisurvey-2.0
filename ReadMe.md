@@ -1,13 +1,13 @@
 # NutriSurvey 2.0
 
-NutriSurvey 2.0 adalah aplikasi analisis nutrisi modern berbasis web yang dirancang untuk menggantikan aplikasi legacy NutriSurvey.de. Aplikasi ini memungkinkan pengguna untuk melacak asupan makanan, menghitung target TDEE (Total Daily Energy Expenditure), dan menganalisis lebih dari 50 jenis mikronutrien secara akurat.
+NutriSurvey 2.0 adalah aplikasi analisis nutrisi modern berbasis web yang dirancang untuk menggantikan aplikasi legacy NutriSurvey.de. Aplikasi ini memungkinkan pengguna untuk melacak asupan makanan, menghitung target TDEE (Total Daily Energy Expenditure), menganalisis lebih dari 50 jenis mikronutrien, dan membuat rencana makan berbantuan AI yang divalidasi terhadap database makanan lokal.
 
 ## Struktur Proyek
 
 - **`/Backend`**: Web API menggunakan ASP.NET Core 8.0.
-  - **Controllers**: Endpoint untuk pencarian makanan, rekomendasi, dan kalkulasi nutrisi.
-  - **Models**: Struktur data untuk Food, Nutrient, dan FoodNutrient.
-  - **Services**: Logika import CSV dan kalkulasi TDEE.
+  - **Controllers**: Endpoint untuk pencarian makanan, rekomendasi, kalkulasi nutrisi, dan AI Meal Planner.
+  - **Models**: Struktur data untuk Food, Nutrient, FoodNutrient, dan DTO AI.
+  - **Services**: Logika import CSV, kalkulasi TDEE, komunikasi AI, dan pemetaan hasil AI ke database makanan.
   - **Data**: Konteks database SQLite (Entity Framework Core).
 - **`/Frontend`**: Single-Page Application (SPA).
   - **`index.html`**: Antarmuka pengguna utama.
@@ -29,7 +29,39 @@ NutriSurvey 2.0 adalah aplikasi analisis nutrisi modern berbasis web yang diranc
 2.  **Kalkulasi Berbasis Sajian**: Menghitung nutrisi secara dinamis berdasarkan jumlah yang diinput pengguna (mendukung satuan g dan ml).
 3.  **Rekomendasi Pintar**: Mencari makanan berdasarkan filter nutrisi tertentu (misal: "makanan dengan protein > 20g").
 4.  **Target Nutrisi Kustom**: Menghitung TDEE berdasarkan profil fisik dan aktivitas pengguna.
-5.  **Ekspor Laporan**: (In Progress) Mengekspor hasil analisis harian ke format Microsoft Word.
+5.  **AI Meal Planner**: Membuat rencana makan berbasis target TDEE, makro, dan kategori waktu makan dari Dashboard.
+6.  **Validasi Database Lokal**: Output AI dipetakan kembali ke database SQLite agar makanan yang tampil berasal dari data lokal, bukan halusinasi model.
+7.  **Auto-Scaling Nutrisi**: Porsi hasil AI dinormalisasi otomatis agar total kalori mendekati target TDEE dengan toleransi 5%, dan porsi di bawah 25 g dibuang agar menu tetap realistis.
+8.  **Implementasi ke Dashboard**: Rencana AI yang sudah tervalidasi dapat dimasukkan ke Manajemen Menu untuk diedit manual, dihapus, atau ditambah makanan lain.
+9.  **Ekspor Laporan**: Mengekspor hasil analisis harian ke format Microsoft Word.
+
+## AI Meal Planner
+
+Fitur AI Meal Planner menggunakan konsep BYOK (Bring Your Own Key). API key hanya dikirim ke backend saat request berjalan dan tidak disimpan di aplikasi.
+
+Provider yang didukung:
+
+- OpenRouter: format OpenAI-compatible `/chat/completions`.
+- OpenAI: format OpenAI-compatible `/chat/completions`.
+- Google Project: Google Gemini native `:generateContent`.
+- Anthropic: Claude native `/messages`.
+- Custom Router: router OpenAI-compatible dengan Base URL manual.
+
+Alur kerja AI:
+
+1. Hitung TDEE terlebih dahulu di Kalkulator TDEE.
+2. Atur kategori waktu makan di Dashboard, misalnya `Makan Pagi`, `Makan Siang`, dan `Makan Malam`.
+3. Buka AI Meal Planner, pilih provider, masukkan model dan API key.
+4. Aplikasi mengirim target TDEE, target makro, dan kategori waktu makan saat ini ke AI.
+5. Backend memetakan makanan hasil AI ke database SQLite lokal.
+6. Backend menormalisasi gramasi agar total kalori mendekati target TDEE.
+7. User dapat meninjau hasil, lalu menekan `Implementasikan Plan ke Dashboard` untuk mengedit menu secara manual.
+
+Catatan keamanan:
+
+- Jangan commit API key ke repository.
+- Gunakan API key sementara atau terbatas jika memungkinkan.
+- Provider custom harus kompatibel dengan schema OpenAI chat completions.
 
 ## Cara Menjalankan
 

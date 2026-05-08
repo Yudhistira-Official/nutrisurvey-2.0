@@ -4,6 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>NutriSurvey Pro 2.0</title>
+    <link href="https://fonts.googleapis.com/css2?family=Lexend:wght@400;500;600&amp;display=swap" rel="stylesheet"/>
+    <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
     <link rel="stylesheet" href="css/style.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
 </head>
@@ -16,6 +18,7 @@
             </div>
             <ul class="nav-links">
                 <li onclick="showSection('dashboard')" id="nav-dashboard" class="active"><i class="fas fa-chart-line"></i> Dashboard</li>
+                <li onclick="showSection('ai-meal-planner')" id="nav-ai-meal-planner"><i class="fas fa-brain"></i> AI Meal Planner</li>
                 <li onclick="showSection('rekomendasi')" id="nav-rekomendasi"><i class="fas fa-lightbulb"></i> Rekomendasi</li>
                 <li onclick="showSection('tdee')" id="nav-tdee"><i class="fas fa-calculator"></i> Kalkulator TDEE</li>
                 <li class="separator"></li>
@@ -29,14 +32,6 @@
         <!-- Main Content -->
         <main id="main-content">
             <header class="top-bar">
-                <div class="search-bar">
-                    <i class="fas fa-search"></i>
-                    <input type="text" placeholder="Cari fitur atau makanan...">
-                </div>
-                <div class="user-profile">
-                    <button class="btn-icon"><i class="fas fa-bell"></i></button>
-                    <button class="btn-icon"><i class="fas fa-user-circle"></i></button>
-                </div>
             </header>
 
             <!-- Dashboard -->
@@ -87,6 +82,102 @@
                             <h3>Mikronutrien</h3>
                             <div id="micro-nutrient-section">
                                 <!-- Dinamis -->
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- AI Meal Planner - Stitch: AI Meal Planner - NutriSurvey 2.0 -->
+            <section id="ai-meal-planner" class="hidden section-fade">
+                <div class="ai-page-shell max-w-[1200px] mx-auto font-body-md text-body-md text-on-background">
+                    <div class="mb-lg">
+                        <h2 class="font-display-lg text-display-lg text-on-surface mb-base">AI Meal Planner Integration</h2>
+                        <p class="font-body-lg text-body-lg text-on-surface-variant">Configure AI parameters and generate customized nutritional plans.</p>
+                    </div>
+                    <div class="ai-planner-grid grid grid-cols-1 lg:grid-cols-12 gap-lg">
+                        <div class="ai-config-card lg:col-span-4 bg-surface-container-lowest rounded-xl border border-surface-variant shadow-[0_4px_12px_rgba(0,109,55,0.05)] p-lg flex flex-col gap-md">
+                            <div class="flex items-center gap-sm border-b border-surface-variant pb-sm mb-xs">
+                                <div class="w-8 h-8 rounded-lg bg-secondary-container flex items-center justify-center text-on-secondary-container">
+                                    <span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">tune</span>
+                                </div>
+                                <h3 class="font-headline-md text-headline-md text-on-surface">Configuration</h3>
+                            </div>
+                            <form class="flex flex-col gap-md">
+                                <div class="flex flex-col gap-base">
+                                    <label class="font-label-sm text-label-sm text-on-surface-variant ml-xs" for="aiProvider">AI Provider</label>
+                                    <select class="w-full bg-surface border border-surface-variant rounded-lg px-sm py-sm font-body-md text-body-md text-on-surface focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary transition-all" id="aiProvider">
+                                        <option value="openrouter">OpenRouter</option>
+                                        <option value="openai">OpenAI</option>
+                                        <option value="google">Google Project</option>
+                                        <option value="anthropic">Anthropic</option>
+                                        <option value="custom">Custom Router</option>
+                                    </select>
+                                </div>
+                                <div class="flex flex-col gap-base" id="aiBaseUrlField" style="display: none;">
+                                    <label class="font-label-sm text-label-sm text-on-surface-variant ml-xs" for="aiBaseUrl">Base URL API</label>
+                                    <input class="w-full bg-surface border border-surface-variant rounded-lg px-sm py-sm font-body-md text-body-md text-on-surface focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary transition-all placeholder:text-on-surface-variant/50" id="aiBaseUrl" placeholder="Cth: https://api.example.com/v1" type="url"/>
+                                </div>
+                                <div class="flex flex-col gap-base">
+                                    <label class="font-label-sm text-label-sm text-on-surface-variant ml-xs" for="aiModel">Model AI</label>
+                                    <input class="w-full bg-surface border border-surface-variant rounded-lg px-sm py-sm font-body-md text-body-md text-on-surface focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary transition-all placeholder:text-on-surface-variant/50" id="aiModel" placeholder="Cth: meta-llama/llama-3-70b" type="text"/>
+                                </div>
+                                <div class="flex flex-col gap-base">
+                                    <label class="font-label-sm text-label-sm text-on-surface-variant ml-xs" for="aiApiKey">API Key</label>
+                                    <input class="w-full bg-surface border border-surface-variant rounded-lg px-sm py-sm font-body-md text-body-md text-on-surface focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary transition-all placeholder:text-on-surface-variant/50" id="aiApiKey" placeholder="Token BYOK (Aman di sisi klien)" type="password"/>
+                                </div>
+                                <p class="ai-auto-target-note">Target TDEE, makro, dan kategori waktu makan otomatis diambil dari Kalkulator TDEE dan Dashboard.</p>
+                                <button class="w-full bg-primary text-on-primary font-label-md text-label-md py-sm rounded-lg hover:bg-primary/90 transition-colors shadow-[0_4px_12px_rgba(0,109,55,0.2)] mt-sm flex items-center justify-center gap-xs" id="btnGenerateAI" type="button">
+                                    <span class="material-symbols-outlined">psychology</span>
+                                    Generate AI Meal Plan
+                                </button>
+                            </form>
+                        </div>
+                        <div class="ai-results-card lg:col-span-8 bg-surface-container-lowest rounded-xl border border-surface-variant shadow-[0_4px_12px_rgba(0,109,55,0.05)] overflow-hidden flex flex-col">
+                            <div class="p-lg border-b border-surface-variant bg-surface-bright flex justify-between items-center">
+                                <div class="flex items-center gap-sm">
+                                    <div class="w-8 h-8 rounded-lg bg-tertiary-container flex items-center justify-center text-on-tertiary-container">
+                                        <span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">analytics</span>
+                                    </div>
+                                    <h3 class="font-headline-md text-headline-md text-on-surface">Analysis Results</h3>
+                                </div>
+                                <div class="px-sm py-1 bg-secondary-container text-on-secondary-container rounded-full font-label-sm text-label-sm flex items-center gap-1">
+                                    <span class="w-2 h-2 rounded-full bg-primary"></span>
+                                    Ready
+                                </div>
+                            </div>
+                            <div class="flex-1 flex flex-col items-center justify-center p-xl min-h-[400px]" id="aiLoadingIndicator">
+                                <div id="aiProgressContainer" style="display: none; width: 100%; margin: 15px 0;">
+                                    <div class="ai-progress-track">
+                                        <div id="aiProgressBar" class="ai-progress-bar"></div>
+                                    </div>
+                                    <p id="aiProgressText" style="text-align: center; font-size: 13px; margin-top: 8px; font-weight: bold;">Menyiapkan...</p>
+                                </div>
+                            </div>
+                            <div class="hidden overflow-x-auto p-md" id="aiResultContainerWrapper">
+                                <table class="w-full text-left border-collapse" id="aiResultContainer">
+                                    <thead>
+                                        <tr class="border-b border-surface-variant text-on-surface-variant font-label-sm text-label-sm">
+                                            <th class="py-sm px-sm font-medium">Waktu Makan</th>
+                                            <th class="py-sm px-sm font-medium">Nama Makanan</th>
+                                            <th class="py-sm px-sm font-medium">Berat (g)</th>
+                                            <th class="py-sm px-sm font-medium">Kalori</th>
+                                            <th class="py-sm px-sm font-medium">Protein</th>
+                                            <th class="py-sm px-sm font-medium">Lemak</th>
+                                            <th class="py-sm px-sm font-medium">Karbo</th>
+                                            <th class="py-sm px-sm font-medium">Alasan AI</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody class="font-body-sm text-body-sm text-on-surface" id="aiResultBody"></tbody>
+                                </table>
+                            </div>
+                            <div id="aiActionArea" style="display: none; text-align: center; margin-top: 20px;">
+                                <button id="btnImplementToDashboard" class="btn-primary-glow">
+                                    Implementasikan Plan ke Dashboard
+                                </button>
+                                <p style="font-size: 0.8rem; color: #666; margin-top: 8px;">
+                                    *Setelah diimplementasikan, Anda dapat mengedit menu di Dashboard utama.
+                                </p>
                             </div>
                         </div>
                     </div>

@@ -21,6 +21,248 @@
 
 * { box-sizing: border-box; }
 
+.spin { animation: spin 1s linear infinite; }
+@keyframes spin { 100% { transform: rotate(360deg); } }
+
+#ai-meal-planner .ai-page-shell {
+    max-width: 1200px;
+    margin: 0 auto;
+    color: #191c1e;
+}
+
+#ai-meal-planner h2 {
+    margin: 0 0 4px;
+    font-size: 40px;
+    line-height: 1.2;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+}
+
+#ai-meal-planner .ai-page-shell > div:first-child p {
+    margin: 0 0 24px;
+    color: #3f4940;
+    font-size: 18px;
+    line-height: 1.6;
+}
+
+#ai-meal-planner .ai-planner-grid {
+    display: grid !important;
+    grid-template-columns: minmax(280px, 0.45fr) minmax(520px, 1fr) !important;
+    gap: 24px !important;
+    align-items: stretch;
+}
+
+#ai-meal-planner .ai-config-card,
+#ai-meal-planner .ai-results-card {
+    display: flex !important;
+    flex-direction: column;
+    background: #ffffff !important;
+    border: 1px solid #e0e3e5 !important;
+    border-radius: 12px !important;
+    box-shadow: 0 4px 12px rgba(0, 109, 55, 0.05) !important;
+    min-height: 520px;
+}
+
+#ai-meal-planner .material-symbols-outlined {
+    font-size: 22px;
+    line-height: 1;
+}
+
+#ai-meal-planner .ai-config-card > div:first-child,
+#ai-meal-planner .ai-results-card > div:first-child {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding-bottom: 12px;
+    margin-bottom: 8px;
+    border-bottom: 1px solid #e0e3e5;
+}
+
+#ai-meal-planner .ai-results-card > div:first-child {
+    justify-content: space-between;
+    padding: 24px;
+    margin: 0;
+    background: #f7f9fb;
+}
+
+#ai-meal-planner .ai-config-card h3,
+#ai-meal-planner .ai-results-card h3 {
+    margin: 0;
+    color: #191c1e;
+    font-size: 22px;
+    font-weight: 500;
+}
+
+#ai-meal-planner .ai-config-card {
+    padding: 24px !important;
+    gap: 16px !important;
+}
+
+#ai-meal-planner .ai-results-card {
+    overflow: hidden;
+}
+
+#ai-meal-planner form {
+    display: flex !important;
+    flex-direction: column;
+    gap: 16px !important;
+}
+
+#ai-meal-planner form > div {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+#ai-meal-planner label {
+    display: block;
+    margin-bottom: 4px;
+    color: #3f4940;
+    font-size: 12px;
+    font-weight: 600;
+}
+
+#btnGenerateAI {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    width: 100%;
+    min-height: 44px;
+    margin-top: 8px;
+    border-radius: 12px;
+    background: #005228;
+    color: #ffffff;
+    box-shadow: 0 4px 12px rgba(0, 109, 55, 0.2);
+}
+
+#aiLoadingIndicator {
+    min-height: 400px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    padding: 32px;
+}
+
+#aiLoadingIndicator .relative {
+    position: relative;
+    width: 64px;
+    height: 64px;
+    margin-bottom: 16px;
+}
+
+#aiLoadingIndicator .absolute {
+    position: absolute;
+    inset: 0;
+}
+
+#aiLoadingIndicator .rounded-full {
+    border-radius: 999px;
+}
+
+#aiLoadingIndicator .border-4 {
+    border: 4px solid #e0e3e5;
+}
+
+#aiLoadingIndicator .border-primary {
+    border-color: #005228;
+}
+
+#aiLoadingIndicator .border-t-transparent {
+    border-top-color: transparent;
+}
+
+#aiLoadingIndicator .ai-loading-icon {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #005228;
+    font-size: 22px;
+    transform: none;
+}
+
+#aiLoadingIndicator p {
+    color: #3f4940;
+    font-size: 14px;
+    font-weight: 500;
+}
+
+.ai-progress-track {
+    background: #e0e0e0;
+    border-radius: 8px;
+    width: 100%;
+    height: 16px;
+    overflow: hidden;
+}
+
+.ai-progress-bar {
+    width: 0%;
+    height: 100%;
+    background-color: #0b8a4a;
+    background-image: linear-gradient(
+        45deg,
+        rgba(255, 255, 255, 0.28) 25%,
+        transparent 25%,
+        transparent 50%,
+        rgba(255, 255, 255, 0.28) 50%,
+        rgba(255, 255, 255, 0.28) 75%,
+        transparent 75%,
+        transparent
+    );
+    background-size: 28px 28px;
+    transition: width 0.35s ease;
+}
+
+.ai-progress-bar.is-running {
+    animation: ai-progress-stripes 0.8s linear infinite;
+}
+
+.ai-progress-bar.is-complete {
+    background-image: none;
+}
+
+@keyframes ai-progress-stripes {
+    from { background-position: 0 0; }
+    to { background-position: 28px 0; }
+}
+
+#aiResultContainerWrapper {
+    padding: 16px;
+    overflow-x: auto;
+}
+
+#aiResultContainer th,
+#aiResultContainer td {
+    padding: 12px;
+}
+
+#aiActionArea {
+    padding: 0 16px 24px;
+}
+
+.btn-primary-glow {
+    background: linear-gradient(135deg, #005228, #0b8a4a);
+    color: #ffffff;
+    padding: 12px 24px;
+    border-radius: 999px;
+    box-shadow: 0 8px 22px rgba(0, 109, 55, 0.28);
+    font-weight: 600;
+}
+
+.btn-primary-glow:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 10px 28px rgba(0, 109, 55, 0.36);
+}
+
+@media (max-width: 1024px) {
+    #ai-meal-planner .ai-planner-grid {
+        grid-template-columns: 1fr !important;
+    }
+}
+
 html { font-size: 13px; }
 
 body { 
@@ -291,7 +533,7 @@ button {
 .modal-header h3 { margin: 0; }
 
 /* Inputs */
-input[type="text"], input[type="number"], select {
+input[type="text"], input[type="number"], input[type="password"], input[type="url"], select, textarea {
     background: var(--surface-container-low);
     border: 1px solid var(--outline-variant);
     padding: 12px 16px;
@@ -300,6 +542,77 @@ input[type="text"], input[type="number"], select {
     outline: none;
     transition: 0.2s;
     width: 100%;
+}
+
+select {
+    appearance: none;
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    color: var(--on-surface);
+    background-color: var(--surface-container-low) !important;
+    background-image: linear-gradient(45deg, transparent 50%, var(--on-surface-variant) 50%), linear-gradient(135deg, var(--on-surface-variant) 50%, transparent 50%);
+    background-position: calc(100% - 18px) calc(50% - 3px), calc(100% - 13px) calc(50% - 3px);
+    background-size: 5px 5px, 5px 5px;
+    background-repeat: no-repeat;
+    padding-right: 36px;
+}
+
+#tdee select,
+#tdee input[type="number"],
+#ai-meal-planner select,
+#ai-meal-planner input,
+#ai-meal-planner textarea {
+    background-color: var(--surface-container-low) !important;
+    border: 1px solid var(--outline-variant) !important;
+    border-radius: 12px !important;
+    color: var(--on-surface) !important;
+    font-family: 'Lexend', sans-serif !important;
+    min-height: 42px;
+}
+
+#filter-container select,
+#filter-container input[type="number"] {
+    background-color: var(--surface-container-low) !important;
+    border: 1px solid var(--outline-variant) !important;
+    border-radius: 12px !important;
+    color: var(--on-surface) !important;
+    font-family: 'Lexend', sans-serif !important;
+    min-height: 42px;
+    padding: 12px 16px !important;
+    outline: none !important;
+    box-shadow: none !important;
+}
+
+#filter-container select {
+    appearance: none !important;
+    -webkit-appearance: none !important;
+    -moz-appearance: none !important;
+    background-image: linear-gradient(45deg, transparent 50%, var(--on-surface-variant) 50%), linear-gradient(135deg, var(--on-surface-variant) 50%, transparent 50%) !important;
+    background-position: calc(100% - 18px) calc(50% - 3px), calc(100% - 13px) calc(50% - 3px) !important;
+    background-size: 5px 5px, 5px 5px !important;
+    background-repeat: no-repeat !important;
+    padding-right: 36px !important;
+}
+
+textarea { resize: vertical; }
+
+.tdee-form {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.tdee-form label,
+.tdee-form small {
+    color: var(--on-surface-variant);
+    font-size: 0.78rem;
+    font-weight: 600;
+    letter-spacing: 0.03em;
+}
+
+.tdee-form select,
+.tdee-form input[type="number"] {
+    min-height: 42px;
 }
 
 /* Hide number input spin buttons */
@@ -317,8 +630,9 @@ input[type="number"] {
     appearance: textfield !important;
 }
 
-input:focus {
+input:focus, select:focus, textarea:focus {
     border-color: var(--primary);
+    box-shadow: 0 0 0 3px rgba(0, 109, 55, 0.08);
 }
 
 /* Utilities */
