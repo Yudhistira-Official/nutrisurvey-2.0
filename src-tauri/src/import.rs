@@ -8,13 +8,48 @@ pub async fn import_csv(
     bytes: &[u8],
     source_name: &str,
 ) -> Result<u64, AppError> {
+    import_csvs(storage, &[(source_name, bytes)]).await
+}
+
+pub async fn import_csvs(storage: &Storage, resources: &[(&str, &[u8])]) -> Result<u64, AppError> {
+    let mut transaction = storage.transaction().await?;
+    let total = import_csvs_transaction(&mut transaction, resources).await?;
+    transaction.commit().await?;
+    Ok(total)
+}
+
+pub async fn seed_csvs(storage: &Storage, resources: &[(&str, &[u8])]) -> Result<u64, AppError> {
+    let mut transaction = storage.transaction().await?;
+    let total = import_csvs_transaction(&mut transaction, resources).await?;
+    sqlx::query("INSERT INTO app_state (key, value) VALUES ('seed_complete', 'true') ON CONFLICT(key) DO UPDATE SET value = 'true'")
+        .execute(&mut *transaction).await?;
+    transaction.commit().await?;
+    Ok(total)
+}
+
+async fn import_csvs_transaction(
+    transaction: &mut Transaction<'_, Sqlite>,
+    resources: &[(&str, &[u8])],
+) -> Result<u64, AppError> {
+    let mut total = 0;
+    for (source_name, bytes) in resources {
+        total += import_csv_transaction(transaction, bytes, source_name).await?;
+    }
+    Ok(total)
+}
+
+async fn import_csv_transaction(
+    transaction: &mut Transaction<'_, Sqlite>,
+    bytes: &[u8],
+    source_name: &str,
+) -> Result<u64, AppError> {
     if bytes.is_empty() {
         return Ok(0);
     }
     let delimiter = detect_delimiter(bytes);
     let mut reader = ReaderBuilder::new()
         .delimiter(delimiter)
-        .flexible(true)
+        .flexible(false)
         .trim(csv::Trim::All)
         .from_reader(bytes);
     let raw_headers = reader.headers().map_err(import_error)?.clone();
@@ -26,19 +61,12 @@ pub async fn import_csv(
         .iter()
         .any(|header| header.starts_with("komponen_nutrient_"))
         && headers.iter().any(|header| header == "makanan");
-    let mut transaction = storage.transaction().await?;
     let result = if scraper {
-        import_scraper(&mut transaction, &headers, &mut reader).await
+        import_scraper(transaction, &headers, &mut reader).await
     } else {
-        import_standard(&mut transaction, &headers, &mut reader).await
+        import_standard(transaction, &headers, &mut reader).await
     };
-    match result {
-        Ok(count) => {
-            transaction.commit().await?;
-            Ok(count)
-        }
-        Err(error) => Err(AppError::Import(format!("{source_name}: {error}"))),
-    }
+    result.map_err(|error| AppError::Import(format!("{source_name}: {error}")))
 }
 
 async fn import_standard(
@@ -46,7 +74,7 @@ async fn import_standard(
     headers: &[String],
     reader: &mut csv::Reader<&[u8]>,
 ) -> Result<u64, String> {
-    let food_index = find_header(headers, &["nama makanan", "foodname"])
+    let food_index = find_header(headers, &["nama makanan", "foodname", "nama", "name"])
         .ok_or_else(|| "Header 'Nama Makanan' tidak ditemukan.".to_string())?;
     let category_index = find_header(headers, &["kategori", "category"]);
     let serving_count_index = find_header(headers, &["jumlah sajian"]);
@@ -65,7 +93,7 @@ async fn import_standard(
         let serving = serving_index
             .and_then(|index| field(&record, index))
             .and_then(|value| parse_serving(&value));
-        let food_id = insert_food(tx, &name, category.as_deref(), serving, servings).await?;
+        let food_id = upsert_food(tx, &name, category.as_deref(), serving, servings).await?;
         for (index, header) in headers.iter().enumerate() {
             if index == food_index || Some(index) == category_index || is_metadata(header) {
                 continue;
@@ -75,7 +103,7 @@ async fn import_standard(
             };
             if let Some((amount, unit)) = parse_nutrient(&value) {
                 let nutrient_id = nutrient_id(tx, &mut nutrients, header, unit.as_deref()).await?;
-                sqlx::query("INSERT OR IGNORE INTO food_nutrients (food_id, nutrient_id, amount) VALUES (?, ?, ?)")
+                sqlx::query("INSERT INTO food_nutrients (food_id, nutrient_id, amount) VALUES (?, ?, ?) ON CONFLICT(food_id, nutrient_id) DO UPDATE SET amount = excluded.amount")
                     .bind(food_id).bind(nutrient_id).bind(amount).execute(&mut **tx).await.map_err(|e| e.to_string())?;
             }
         }
@@ -116,7 +144,7 @@ async fn import_scraper(
             .map_err(|e| e.to_string())?
         {
             Some(id) => id,
-            None => insert_food(tx, &name, category.as_deref(), None, None).await?,
+            None => upsert_food(tx, &name, category.as_deref(), None, None).await?,
         };
         for index in 1..=48 {
             let name_index = headers
@@ -145,16 +173,28 @@ async fn import_scraper(
     Ok(count)
 }
 
-async fn insert_food(
+async fn upsert_food(
     tx: &mut Transaction<'_, Sqlite>,
     name: &str,
     category: Option<&str>,
     serving: Option<(f64, String)>,
     servings: Option<f64>,
 ) -> Result<i64, String> {
+    let normalized = name.to_lowercase();
+    let existing = sqlx::query_scalar::<_, i64>("SELECT id FROM foods WHERE normalized_name = ?")
+        .bind(&normalized)
+        .fetch_optional(&mut **tx)
+        .await
+        .map_err(|e| e.to_string())?;
     let (size, unit) = serving.unwrap_or((100.0, "g".into()));
-    Ok(sqlx::query("INSERT INTO foods (name, normalized_name, category, serving_size, serving_unit, servings_per_container) VALUES (?, ?, ?, ?, ?, ?)")
-        .bind(name).bind(name.to_lowercase()).bind(category).bind(size).bind(unit).bind(servings.unwrap_or(1.0)).execute(&mut **tx).await.map_err(|e| e.to_string())?.last_insert_rowid())
+    if let Some(id) = existing {
+        sqlx::query("UPDATE foods SET name = ?, category = COALESCE(?, category), serving_size = ?, serving_unit = ?, servings_per_container = ? WHERE id = ?")
+            .bind(name).bind(category).bind(size).bind(unit).bind(servings.unwrap_or(1.0)).bind(id).execute(&mut **tx).await.map_err(|e| e.to_string())?;
+        Ok(id)
+    } else {
+        Ok(sqlx::query("INSERT INTO foods (name, normalized_name, category, serving_size, serving_unit, servings_per_container) VALUES (?, ?, ?, ?, ?, ?)")
+            .bind(name).bind(normalized).bind(category).bind(size).bind(unit).bind(servings.unwrap_or(1.0)).execute(&mut **tx).await.map_err(|e| e.to_string())?.last_insert_rowid())
+    }
 }
 
 async fn nutrient_map(tx: &mut Transaction<'_, Sqlite>) -> Result<HashMap<String, i64>, String> {
@@ -222,38 +262,69 @@ fn is_metadata(header: &str) -> bool {
     matches!(header, "id" | "jumlah sajian" | "per sajian") || header.contains("web_scraper")
 }
 fn parse_number(value: &str) -> Option<f64> {
-    value.trim().replace(',', ".").parse().ok()
+    parse_numeric_prefix(value).map(|(number, _)| number)
 }
 fn parse_serving(value: &str) -> Option<(f64, String)> {
-    let value = value.replace(',', ".");
-    let mut number = String::new();
-    let mut unit = String::new();
-    for character in value.chars() {
-        if character.is_ascii_digit() || character == '.' {
-            number.push(character);
-        } else if character.is_ascii_alphabetic() {
-            unit.push(character);
-        }
-    }
-    Some((number.parse().ok()?, unit)).filter(|(_, unit)| !unit.is_empty())
+    let (amount, rest) = parse_numeric_prefix(value)?;
+    let unit = rest
+        .chars()
+        .filter(|character| character.is_ascii_alphabetic())
+        .collect::<String>();
+    Some((amount, unit)).filter(|(_, unit)| !unit.is_empty())
 }
 fn parse_nutrient(value: &str) -> Option<(f64, Option<String>)> {
     let value = value.trim();
     if value.is_empty() || value == "-" || value == "0" {
         return None;
     }
-    let normalized = value.replace(',', ".");
-    let mut parts = normalized.split_whitespace();
-    let amount = parts.next()?.parse().ok()?;
-    let unit = parts.next().map(str::to_string).or_else(|| {
-        value
-            .chars()
-            .skip_while(|c| c.is_ascii_digit() || *c == '.' || *c == '-')
-            .collect::<String>()
-            .into()
-    });
-    Some((amount, unit))
+    let (amount, rest) = parse_numeric_prefix(value)?;
+    let unit = rest
+        .chars()
+        .filter(|character| character.is_ascii_alphabetic())
+        .collect::<String>();
+    Some((amount, (!unit.is_empty()).then_some(unit)))
+}
+fn parse_numeric_prefix(value: &str) -> Option<(f64, String)> {
+    let trimmed = value.trim();
+    let start = trimmed
+        .find(|character: char| character.is_ascii_digit() || matches!(character, '-' | '+'))?;
+    let trimmed = &trimmed[start..];
+    let end = trimmed
+        .find(|character: char| {
+            !(character.is_ascii_digit() || matches!(character, '.' | ',' | '-' | '+'))
+        })
+        .unwrap_or(trimmed.len());
+    let number = &trimmed[..end];
+    let separator = if number.rfind(',').unwrap_or(0) > number.rfind('.').unwrap_or(0) {
+        ','
+    } else {
+        '.'
+    };
+    let normalized = if separator == ',' && number.contains('.') {
+        number.replace('.', "").replace(',', ".")
+    } else if separator == ',' {
+        number.replace(',', ".")
+    } else {
+        number.replace(',', "")
+    };
+    Some((normalized.parse().ok()?, trimmed[end..].trim().to_string()))
 }
 fn import_error(error: csv::Error) -> AppError {
     AppError::Import(error.to_string())
+}
+
+pub async fn seed_is_complete(storage: &Storage) -> Result<bool, AppError> {
+    Ok(
+        sqlx::query_scalar::<_, String>("SELECT value FROM app_state WHERE key = 'seed_complete'")
+            .fetch_optional(storage.pool())
+            .await?
+            .as_deref()
+            == Some("true"),
+    )
+}
+
+pub async fn mark_seed_complete(storage: &Storage) -> Result<(), AppError> {
+    sqlx::query("INSERT INTO app_state (key, value) VALUES ('seed_complete', 'true') ON CONFLICT(key) DO UPDATE SET value = 'true'")
+        .execute(storage.pool()).await?;
+    Ok(())
 }

@@ -109,3 +109,81 @@ async fn malformed_headers_return_import_error_without_partial_rows() {
     assert_eq!(foods::search(&storage, "", 20).await.unwrap().len(), 0);
     cleanup(path).await;
 }
+
+#[tokio::test]
+async fn imports_nama_schema_and_robust_numeric_formats() {
+    let (storage, path) = storage().await;
+    let csv = "nomor;kode;nama;kelompok;tipe;Energi (Energy);Protein (Protein);Lemak (Fat)\n1;X;Rice;Grain;Raw;1,147.1 Kal;147.1 g;0.33mg\n";
+    assert_eq!(
+        import::import_csv(&storage, csv.as_bytes(), "panganku.csv")
+            .await
+            .unwrap(),
+        1
+    );
+    let result = foods::search(&storage, "rice", 20).await.unwrap();
+    assert_eq!(result.len(), 1);
+    assert_eq!(result[0].nutrients.get("energi (energy)"), Some(&1147.1));
+    assert_eq!(result[0].nutrients.get("protein (protein)"), Some(&147.1));
+    assert_eq!(result[0].nutrients.get("lemak (fat)"), Some(&0.33));
+    cleanup(path).await;
+}
+
+#[tokio::test]
+async fn standard_import_upserts_duplicate_food_and_nutrients() {
+    let (storage, path) = storage().await;
+    let csv = "Nama Makanan;Kategori;Energi;Protein\nRice;Grain;100;2\nRice;Updated;200;3\n";
+    assert_eq!(
+        import::import_csv(&storage, csv.as_bytes(), "duplicate.csv")
+            .await
+            .unwrap(),
+        2
+    );
+    assert_eq!(foods::search(&storage, "rice", 20).await.unwrap().len(), 1);
+    let food = foods::search(&storage, "rice", 20)
+        .await
+        .unwrap()
+        .pop()
+        .unwrap();
+    assert_eq!(food.category.as_deref(), Some("Updated"));
+    assert_eq!(food.nutrients.get("energi"), Some(&200.0));
+    assert_eq!(food.nutrients.get("protein"), Some(&3.0));
+    cleanup(path).await;
+}
+
+#[tokio::test]
+async fn failed_import_rolls_back_food_nutrients_and_readiness_state() {
+    let (storage, path) = storage().await;
+    let error = import::import_csv(
+        &storage,
+        b"Nama Makanan;Protein\nGood;2\n\"Broken;1\n",
+        "rollback.csv",
+    )
+    .await
+    .unwrap_err();
+    assert!(error.to_string().contains("rollback.csv"));
+    assert!(foods::search(&storage, "", 20).await.unwrap().is_empty());
+    assert!(!import::seed_is_complete(&storage).await.unwrap());
+    cleanup(path).await;
+}
+
+#[tokio::test]
+async fn seed_state_is_explicit_and_empty_resources_complete_deterministically() {
+    let (storage, path) = storage().await;
+    assert!(!import::seed_is_complete(&storage).await.unwrap());
+    import::seed_csvs(&storage, &[]).await.unwrap();
+    assert!(import::seed_is_complete(&storage).await.unwrap());
+    cleanup(path).await;
+}
+
+#[tokio::test]
+async fn bundled_seed_rolls_back_all_resources_and_completion_on_failure() {
+    let (storage, path) = storage().await;
+    let resources = [
+        ("first.csv", b"Nama Makanan;Protein\nGood;2\n".as_slice()),
+        ("broken.csv", b"\"unterminated\n".as_slice()),
+    ];
+    assert!(import::seed_csvs(&storage, &resources).await.is_err());
+    assert!(foods::search(&storage, "", 20).await.unwrap().is_empty());
+    assert!(!import::seed_is_complete(&storage).await.unwrap());
+    cleanup(path).await;
+}

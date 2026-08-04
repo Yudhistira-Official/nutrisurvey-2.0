@@ -83,24 +83,30 @@ pub fn run() {
 }
 
 async fn seed_resources(storage: &storage::Storage) -> Result<(), error::AppError> {
-    if foods::status(storage).await?.is_ready {
+    if import::seed_is_complete(storage).await? {
         return Ok(());
     }
-    let mut entries = tokio::fs::read_dir(storage.resource_dir()).await?;
-    while let Some(entry) = entries.next_entry().await? {
-        let path = entry.path();
-        if path.extension().and_then(|extension| extension.to_str()) == Some("csv") {
-            let bytes = tokio::fs::read(&path).await?;
-            import::import_csv(
-                storage,
-                &bytes,
-                path.file_name()
-                    .and_then(|name| name.to_str())
-                    .unwrap_or("resource.csv"),
-            )
-            .await?;
+    let mut resources = Vec::new();
+    if storage.resource_dir().is_dir() {
+        let mut entries = tokio::fs::read_dir(storage.resource_dir()).await?;
+        while let Some(entry) = entries.next_entry().await? {
+            let path = entry.path();
+            if path.extension().and_then(|extension| extension.to_str()) == Some("csv") {
+                resources.push((
+                    path.file_name()
+                        .and_then(|name| name.to_str())
+                        .unwrap_or("resource.csv")
+                        .to_string(),
+                    tokio::fs::read(path).await?,
+                ));
+            }
         }
     }
+    let references = resources
+        .iter()
+        .map(|(name, bytes)| (name.as_str(), bytes.as_slice()))
+        .collect::<Vec<_>>();
+    import::seed_csvs(storage, &references).await?;
     Ok(())
 }
 
