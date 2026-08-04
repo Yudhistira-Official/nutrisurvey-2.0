@@ -1,5 +1,6 @@
 use crate::{
     error::AppError,
+    import::canonical_nutrient_name,
     models::{FoodResult, NutrientSummary},
     storage::Storage,
 };
@@ -40,12 +41,13 @@ pub async fn search(
             .find(|food: &&mut FoodResult| food.id == row.id)
         {
             if let (Some(name), Some(amount)) = (row.nutrient_name, row.amount) {
-                food.nutrients.insert(name.to_lowercase(), amount);
+                food.nutrients
+                    .insert(canonical_nutrient_name(&name), amount);
             }
         } else {
             let mut nutrients = std::collections::HashMap::new();
             if let (Some(name), Some(amount)) = (row.nutrient_name, row.amount) {
-                nutrients.insert(name.to_lowercase(), amount);
+                nutrients.insert(canonical_nutrient_name(&name), amount);
             }
             result.push(FoodResult {
                 id: row.id,
@@ -73,11 +75,25 @@ pub async fn status(storage: &Storage) -> Result<FoodStatus, AppError> {
 }
 
 pub async fn list_nutrients(storage: &Storage) -> Result<Vec<NutrientSummary>, AppError> {
-    Ok(sqlx::query_as::<_, NutrientSummary>(
-        "SELECT name, unit, 0.0 AS amount FROM nutrients ORDER BY name",
-    )
-    .fetch_all(storage.pool())
-    .await?)
+    let rows =
+        sqlx::query_as::<_, (String, String)>("SELECT name, unit FROM nutrients ORDER BY name")
+            .fetch_all(storage.pool())
+            .await?;
+    let mut result = Vec::new();
+    for (name, unit) in rows {
+        let canonical = canonical_nutrient_name(&name);
+        if !result
+            .iter()
+            .any(|item: &NutrientSummary| item.name == canonical)
+        {
+            result.push(NutrientSummary {
+                name: canonical,
+                unit,
+                amount: 0.0,
+            });
+        }
+    }
+    Ok(result)
 }
 
 #[derive(Debug, Clone, serde::Serialize)]

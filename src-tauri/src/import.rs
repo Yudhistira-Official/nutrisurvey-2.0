@@ -11,6 +11,21 @@ pub async fn import_csv(
     import_csvs(storage, &[(source_name, bytes)]).await
 }
 
+pub async fn copy_and_import(
+    storage: &Storage,
+    bytes: &[u8],
+    source_name: &str,
+) -> Result<u64, AppError> {
+    let safe_name = std::path::Path::new(source_name)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("import.csv");
+    let destination = storage.app_data_dir().join("imports").join(safe_name);
+    tokio::fs::create_dir_all(destination.parent().unwrap()).await?;
+    tokio::fs::write(destination, bytes).await?;
+    import_csv(storage, bytes, safe_name).await
+}
+
 pub async fn import_csvs(storage: &Storage, resources: &[(&str, &[u8])]) -> Result<u64, AppError> {
     let mut transaction = storage.transaction().await?;
     let total = import_csvs_transaction(&mut transaction, resources).await?;
@@ -198,14 +213,16 @@ async fn upsert_food(
 }
 
 async fn nutrient_map(tx: &mut Transaction<'_, Sqlite>) -> Result<HashMap<String, i64>, String> {
-    Ok(
-        sqlx::query_as::<_, (String, i64)>("SELECT normalized_name, id FROM nutrients")
-            .fetch_all(&mut **tx)
-            .await
-            .map_err(|e| e.to_string())?
-            .into_iter()
-            .collect(),
+    let rows = sqlx::query_as::<_, (String, String, i64)>(
+        "SELECT name, normalized_name, id FROM nutrients",
     )
+    .fetch_all(&mut **tx)
+    .await
+    .map_err(|e| e.to_string())?;
+    Ok(rows
+        .into_iter()
+        .map(|(name, _, id)| (canonical_nutrient_name(&name).to_string(), id))
+        .collect())
 }
 
 async fn nutrient_id(
@@ -214,7 +231,7 @@ async fn nutrient_id(
     name: &str,
     unit: Option<&str>,
 ) -> Result<i64, String> {
-    let key = name.to_lowercase();
+    let key = canonical_nutrient_name(name).to_string();
     if let Some(id) = nutrients.get(&key) {
         return Ok(*id);
     }
@@ -249,6 +266,23 @@ fn detect_delimiter(bytes: &[u8]) -> u8 {
 }
 fn normalize_header(value: &str) -> String {
     value.trim().trim_matches('\u{feff}').to_lowercase()
+}
+
+pub(crate) fn canonical_nutrient_name(value: &str) -> String {
+    let normalized = value.trim().to_lowercase();
+    match normalized.as_str() {
+        "energi" | "energy" | "energi (energy)" | "energy (kcal)" | "energi (kkal)"
+        | "energi total" | "total energy" => "energi".into(),
+        "protein" | "protein (protein)" | "total protein" => "protein".into(),
+        "lemak" | "fat" | "lemak (fat)" | "lemak total" | "total fat" | "fats" => {
+            "lemak total".into()
+        }
+        "karbohidrat" | "karbohidrat total" | "karbohidrat (cho)" | "carbohydrate"
+        | "carbohydrates" | "total carbohydrate" | "carbohydr." | "carbs" | "karbo" => {
+            "karbohidrat total".into()
+        }
+        _ => normalized,
+    }
 }
 fn find_header(headers: &[String], names: &[&str]) -> Option<usize> {
     headers

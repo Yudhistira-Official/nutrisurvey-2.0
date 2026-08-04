@@ -37,3 +37,16 @@ Additional verification:
 - `cargo test --manifest-path src-tauri/Cargo.toml --test import_search`: 10 passed.
 - `cargo test --manifest-path src-tauri/Cargo.toml`: 17 passed.
 - fmt and clippy with `-D warnings`: passed.
+
+## Alias/header/copy fix append
+
+Status: complete.
+
+- Canonical nutrient aliases now preserve frontend/backend keys: `energi`, `protein`, `lemak total`, and `karbohidrat total`; unknown nutrients remain normalized and retained.
+- Added exact bundled CSV fixture tests for `DataPangankuKemenkes2017.csv` and `DatabaseFatSecret.csv` headers and representative rows.
+- Added tested `copy_and_import` path and routed `import_food_csv` through it.
+
+Verification:
+- `cargo test --manifest-path src-tauri/Cargo.toml --test import_search`: 14 passed.
+- `cargo test --manifest-path src-tauri/Cargo.toml`: 21 passed, 0 failed.
+- fmt and clippy with `-D warnings`: passed.

@@ -48,14 +48,7 @@ pub mod commands {
         bytes: Vec<u8>,
         source_name: String,
     ) -> Result<u64, error::AppError> {
-        let safe_name = std::path::Path::new(&source_name)
-            .file_name()
-            .and_then(|name| name.to_str())
-            .unwrap_or("import.csv");
-        let destination = state.storage.app_data_dir().join("imports").join(safe_name);
-        tokio::fs::create_dir_all(destination.parent().unwrap()).await?;
-        tokio::fs::write(destination, &bytes).await?;
-        import::import_csv(&state.storage, &bytes, safe_name).await
+        import::copy_and_import(&state.storage, &bytes, &source_name).await
     }
 }
 

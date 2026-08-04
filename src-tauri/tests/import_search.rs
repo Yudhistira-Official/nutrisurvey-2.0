@@ -76,7 +76,7 @@ async fn imports_scraper_format_updates_duplicate_food_and_creates_nutrients() {
     let result = foods::search(&storage, "snack", 20).await.unwrap();
     assert_eq!(result.len(), 1);
     assert_eq!(result[0].nutrients.get("protein"), Some(&2.0));
-    assert_eq!(result[0].nutrients.get("energy"), Some(&100.0));
+    assert_eq!(result[0].nutrients.get("energi"), Some(&100.0));
     cleanup(path).await;
 }
 
@@ -122,9 +122,9 @@ async fn imports_nama_schema_and_robust_numeric_formats() {
     );
     let result = foods::search(&storage, "rice", 20).await.unwrap();
     assert_eq!(result.len(), 1);
-    assert_eq!(result[0].nutrients.get("energi (energy)"), Some(&1147.1));
-    assert_eq!(result[0].nutrients.get("protein (protein)"), Some(&147.1));
-    assert_eq!(result[0].nutrients.get("lemak (fat)"), Some(&0.33));
+    assert_eq!(result[0].nutrients.get("energi"), Some(&1147.1));
+    assert_eq!(result[0].nutrients.get("protein"), Some(&147.1));
+    assert_eq!(result[0].nutrients.get("lemak total"), Some(&0.33));
     cleanup(path).await;
 }
 
@@ -185,5 +185,87 @@ async fn bundled_seed_rolls_back_all_resources_and_completion_on_failure() {
     assert!(import::seed_csvs(&storage, &resources).await.is_err());
     assert!(foods::search(&storage, "", 20).await.unwrap().is_empty());
     assert!(!import::seed_is_complete(&storage).await.unwrap());
+    cleanup(path).await;
+}
+
+#[tokio::test]
+async fn canonical_aliases_preserve_frontend_nutrient_keys_and_unknowns() {
+    let (storage, path) = storage().await;
+    let csv = "Nama Makanan;Energi (Energy);Protein (Protein);Lemak (Fat);Karbohidrat (CHO);Serat Istimewa\nFood;100;2;3;4;5\n";
+    import::import_csv(&storage, csv.as_bytes(), "aliases.csv")
+        .await
+        .unwrap();
+    let food = foods::search(&storage, "food", 20)
+        .await
+        .unwrap()
+        .pop()
+        .unwrap();
+    assert_eq!(food.nutrients.get("energi"), Some(&100.0));
+    assert_eq!(food.nutrients.get("protein"), Some(&2.0));
+    assert_eq!(food.nutrients.get("lemak total"), Some(&3.0));
+    assert_eq!(food.nutrients.get("karbohidrat total"), Some(&4.0));
+    assert_eq!(food.nutrients.get("serat istimewa"), Some(&5.0));
+    cleanup(path).await;
+}
+
+#[tokio::test]
+async fn bundled_panganku_header_and_row_imports_with_canonical_aliases() {
+    let (storage, path) = storage().await;
+    let bytes = include_bytes!("../../DatabaseMakanan/DataPangankuKemenkes2017.csv");
+    assert_eq!(
+        import::import_csv(&storage, bytes, "DataPangankuKemenkes2017.csv")
+            .await
+            .unwrap(),
+        1146
+    );
+    let food = foods::search(&storage, "abon haruwan", 20)
+        .await
+        .unwrap()
+        .pop()
+        .unwrap();
+    assert_eq!(food.nutrients.get("energi"), Some(&513.0));
+    assert_eq!(food.nutrients.get("protein"), Some(&23.7));
+    assert_eq!(food.nutrients.get("lemak total"), Some(&37.0));
+    cleanup(path).await;
+}
+
+#[tokio::test]
+async fn bundled_fatsecret_header_and_row_imports_with_canonical_aliases() {
+    let (storage, path) = storage().await;
+    let bytes = include_bytes!("../../DatabaseMakanan/DatabaseFatSecret.csv");
+    assert_eq!(
+        import::import_csv(&storage, bytes, "DatabaseFatSecret.csv")
+            .await
+            .unwrap(),
+        4320
+    );
+    let food = foods::search(&storage, "0% fat yogurt", 20)
+        .await
+        .unwrap()
+        .pop()
+        .unwrap();
+    assert_eq!(food.nutrients.get("energi"), Some(&51.0));
+    assert_eq!(food.nutrients.get("protein"), Some(&4.0));
+    assert_eq!(food.nutrients.get("lemak total"), Some(&0.1));
+    cleanup(path).await;
+}
+
+#[tokio::test]
+async fn import_copy_helper_persists_source_bytes_before_import() {
+    let (storage, path) = storage().await;
+    let source = "selected.csv";
+    let bytes = b"Nama Makanan;Protein\nCopied;7\n";
+    assert_eq!(
+        import::copy_and_import(&storage, bytes, source)
+            .await
+            .unwrap(),
+        1
+    );
+    assert_eq!(
+        tokio::fs::read(storage.app_data_dir().join("imports").join(source))
+            .await
+            .unwrap(),
+        bytes
+    );
     cleanup(path).await;
 }
