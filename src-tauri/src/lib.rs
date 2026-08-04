@@ -52,33 +52,87 @@ mod tests {
 
 #[cfg(test)]
 mod storage_tests {
-    #[tokio::test]
-    async fn opens_and_initializes_under_supplied_app_data_path() {
-        let path = std::env::temp_dir().join(format!(
-            "nutrisurvey-test-{}-{}.db",
-            std::process::id(),
-            "open"
-        ));
+    use std::{
+        sync::atomic::{AtomicU64, Ordering},
+        time::{SystemTime, UNIX_EPOCH},
+    };
+
+    static TEMP_DATABASE_ID: AtomicU64 = AtomicU64::new(0);
+
+    fn temp_database_path(name: &str) -> std::path::PathBuf {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let id = TEMP_DATABASE_ID.fetch_add(1, Ordering::Relaxed);
+        std::env::temp_dir()
+            .join(format!("nutrisurvey-test-{unique}-{id}"))
+            .join(format!("{name}.db"))
+    }
+
+    async fn open_temp_database(name: &str) -> (crate::storage::Storage, std::path::PathBuf) {
+        let path = temp_database_path(name);
         let storage = crate::storage::Storage::open_path(&path).await.unwrap();
-        storage.initialize().await.unwrap();
-        let count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name IN ('foods', 'nutrients', 'food_nutrients')")
-            .fetch_one(storage.pool())
-            .await
-            .unwrap();
+        (storage, path)
+    }
+
+    #[tokio::test]
+    async fn open_initializes_schema_under_nested_path() {
+        let (storage, path) = open_temp_database("open").await;
+        let count: (i64,) = sqlx::query_as(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name IN ('foods', 'nutrients', 'food_nutrients')",
+        )
+        .fetch_one(storage.pool())
+        .await
+        .unwrap();
         assert_eq!(count.0, 3);
-        let _ = std::fs::remove_file(path);
+        let _ = std::fs::remove_dir_all(path.parent().unwrap());
     }
 
     #[tokio::test]
     async fn schema_initializes_twice_safely() {
-        let path = std::env::temp_dir().join(format!(
-            "nutrisurvey-test-{}-{}.db",
-            std::process::id(),
-            "twice"
-        ));
-        let storage = crate::storage::Storage::open_path(&path).await.unwrap();
+        let (storage, path) = open_temp_database("twice").await;
         storage.initialize().await.unwrap();
-        storage.initialize().await.unwrap();
-        let _ = std::fs::remove_file(path);
+        let _ = std::fs::remove_dir_all(path.parent().unwrap());
+    }
+
+    #[tokio::test]
+    async fn schema_enforces_foreign_keys_indexes_and_unique_constraints() {
+        let (storage, path) = open_temp_database("constraints").await;
+        let foreign_keys: (i64,) = sqlx::query_as("PRAGMA foreign_keys")
+            .fetch_one(storage.pool())
+            .await
+            .unwrap();
+        assert_eq!(foreign_keys.0, 1);
+
+        let indexes: (i64,) = sqlx::query_as(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type = 'index' AND name IN ('idx_foods_normalized_name', 'idx_food_nutrients_food_id', 'idx_food_nutrients_nutrient_id')",
+        )
+        .fetch_one(storage.pool())
+        .await
+        .unwrap();
+        assert_eq!(indexes.0, 3);
+
+        sqlx::query("INSERT INTO foods (name, normalized_name) VALUES ('Rice', 'rice')")
+            .execute(storage.pool())
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO nutrients (name, normalized_name, unit) VALUES ('Calories', 'calories', 'kcal')")
+            .execute(storage.pool())
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO food_nutrients (food_id, nutrient_id, amount) VALUES (1, 1, 130)")
+            .execute(storage.pool())
+            .await
+            .unwrap();
+        assert!(sqlx::query("INSERT INTO food_nutrients (food_id, nutrient_id, amount) VALUES (1, 1, 130)")
+            .execute(storage.pool())
+            .await
+            .is_err());
+        assert!(sqlx::query("INSERT INTO food_nutrients (food_id, nutrient_id, amount) VALUES (99, 1, 130)")
+            .execute(storage.pool())
+            .await
+            .is_err());
+        let _ = std::fs::remove_dir_all(path.parent().unwrap());
     }
 }

@@ -1,7 +1,7 @@
 use crate::error::AppError;
 use sqlx::{
     sqlite::{SqliteConnectOptions, SqlitePoolOptions},
-    Sqlite, SqlitePool, Transaction,
+    Executor, Sqlite, SqlitePool, Transaction,
 };
 use std::path::{Path, PathBuf};
 use tauri::{AppHandle, Manager};
@@ -46,16 +46,21 @@ impl Storage {
             .create_if_missing(true);
         let pool = SqlitePoolOptions::new()
             .max_connections(5)
+            .after_connect(|connection, _| {
+                Box::pin(async move {
+                    connection.execute("PRAGMA foreign_keys = ON").await?;
+                    Ok(())
+                })
+            })
             .connect_with(options)
             .await?;
-        sqlx::query("PRAGMA foreign_keys = ON")
-            .execute(&pool)
-            .await?;
-        Ok(Self {
+        let storage = Self {
             pool,
             app_data_dir,
             resource_dir,
-        })
+        };
+        storage.initialize().await?;
+        Ok(storage)
     }
 
     pub fn pool(&self) -> &SqlitePool {
