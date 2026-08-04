@@ -137,7 +137,7 @@ pub struct RecommendationFilter {
     pub value: f64,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct AiRequest {
     pub target_tdee: i32,
     pub target_carbs: i32,
@@ -149,6 +149,23 @@ pub struct AiRequest {
     #[serde(skip_serializing)]
     pub api_key: String,
     pub base_url: String,
+}
+
+impl std::fmt::Debug for AiRequest {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("AiRequest")
+            .field("target_tdee", &self.target_tdee)
+            .field("target_carbs", &self.target_carbs)
+            .field("target_protein", &self.target_protein)
+            .field("target_fat", &self.target_fat)
+            .field("available_meal_types", &self.available_meal_types)
+            .field("provider", &self.provider)
+            .field("model", &self.model)
+            .field("api_key", &"[REDACTED]")
+            .field("base_url", &self.base_url)
+            .finish()
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

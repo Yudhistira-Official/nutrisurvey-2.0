@@ -82,6 +82,43 @@ async fn google_provider_uses_supported_key_header_and_fenced_json() {
 }
 
 #[tokio::test]
+async fn generate_menu_normalizes_tdee_and_drops_items_below_25_grams() {
+    let storage = storage().await;
+    sqlx::query("INSERT INTO foods (id,name,normalized_name,serving_size,serving_unit,servings_per_container) VALUES (1,'Nasi','nasi',100,'g',1),(2,'Telur','telur',100,'g',1)")
+        .execute(storage.pool())
+        .await
+        .unwrap();
+    for (id, name, amount) in [(1, "Energi", 100.0), (2, "Protein", 10.0)] {
+        sqlx::query("INSERT INTO nutrients (id,name,normalized_name,unit) VALUES (?,?,?,?)")
+            .bind(id)
+            .bind(name)
+            .bind(name.to_lowercase())
+            .bind("g")
+            .execute(storage.pool())
+            .await
+            .unwrap();
+        for food_id in 1..=2 {
+            sqlx::query("INSERT INTO food_nutrients (food_id,nutrient_id,amount) VALUES (?,?,?)")
+                .bind(food_id)
+                .bind(id)
+                .bind(amount)
+                .execute(storage.pool())
+                .await
+                .unwrap();
+        }
+    }
+    let response = r#"{"choices":[{"message":{"content":"{\"meal_plan\":[{\"meal_type\":\"Sarapan\",\"food_keyword\":\"Nasi\",\"suggested_grams\":100,\"reasoning\":\"utama\"},{\"meal_type\":\"Sarapan\",\"food_keyword\":\"Telur\",\"suggested_grams\":10,\"reasoning\":\"kecil\"}]}"}}]}"#;
+    let (url, task) = mock_server(200, response).await;
+    let mut request = request(url, "openai");
+    request.target_tdee = 210;
+    let mapped = ai::generate_menu(&storage, request).await.unwrap();
+    assert_eq!(mapped.len(), 1);
+    assert_eq!(mapped[0].suggested_grams, 191);
+    assert_eq!(mapped[0].calories, 191.0);
+    task.await.unwrap();
+}
+
+#[tokio::test]
 async fn anthropic_provider_parses_response() {
     let storage = storage().await;
     let body = format!(r#"{{"content":[{{"text":{PLAN:?}}}]}}"#);
@@ -112,6 +149,49 @@ async fn malformed_json_missing_fields_and_http_errors_are_redacted() {
     assert!(!error.contains("super-secret-key"));
     assert!(error.contains("HTTP 500"));
     task.await.unwrap();
+}
+
+#[test]
+fn ai_request_debug_redacts_api_key() {
+    let debug = format!("{:?}", request("https://example.test".into(), "openai"));
+    assert!(!debug.contains("super-secret-key"));
+}
+
+#[test]
+fn endpoint_validation_rejects_unsafe_urls_and_structurally_joins_paths() {
+    for base_url in [
+        "https://example.test?token=secret",
+        "https://example.test/#fragment",
+        "https://user:password@example.test",
+        "http://10.0.0.1",
+        "http://192.168.1.1",
+        "http://169.254.169.254",
+    ] {
+        assert!(
+            ai::endpoint(base_url, "messages").is_err(),
+            "accepted {base_url}"
+        );
+    }
+    let endpoint = ai::endpoint("https://example.test/api/v1/", "messages").unwrap();
+    assert_eq!(endpoint.as_str(), "https://example.test/api/v1/messages");
+    let existing = ai::endpoint("https://example.test/api/messages", "messages").unwrap();
+    assert_eq!(existing.as_str(), "https://example.test/api/messages");
+}
+
+#[test]
+fn google_model_path_is_url_encoded() {
+    assert_eq!(
+        ai::google_endpoint("https://example.test/api", "models/a b/v1")
+            .unwrap()
+            .as_str(),
+        "https://example.test/api/models/models%2Fa%20b%2Fv1:generateContent"
+    );
+}
+
+#[test]
+fn parser_accepts_case_insensitive_crlf_fences_and_surrounding_prose() {
+    let content = format!("intro\r\n```JSON\r\n{}\r\n```\r\noutro", PLAN);
+    assert_eq!(ai::prompt::parse_meal_plan(&content).unwrap().len(), 1);
 }
 
 #[tokio::test]

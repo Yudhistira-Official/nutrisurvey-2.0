@@ -12,9 +12,9 @@ pub(crate) fn build(request: &AiRequest) -> String {
     )
 }
 
-pub(crate) fn parse_meal_plan(content: &str) -> Result<Vec<crate::models::AiMealInput>, AppError> {
-    let json = strip_fence(content.trim());
-    let value: Value = serde_json::from_str(json)
+pub fn parse_meal_plan(content: &str) -> Result<Vec<crate::models::AiMealInput>, AppError> {
+    let json = extract_json(content)?;
+    let value: Value = serde_json::from_str(&json)
         .map_err(|_| AppError::Ai("AI meal plan JSON is malformed".into()))?;
     let plan = value
         .get("meal_plan")
@@ -35,13 +35,52 @@ pub(crate) fn parse_meal_plan(content: &str) -> Result<Vec<crate::models::AiMeal
         .map_err(|_| AppError::Ai("AI meal plan fields are invalid".into()))
 }
 
-fn strip_fence(value: &str) -> &str {
-    let Some(value) = value.strip_prefix("```") else {
-        return value;
-    };
-    let value = value
-        .strip_prefix("json")
-        .unwrap_or(value)
-        .trim_start_matches('\n');
-    value.strip_suffix("```").unwrap_or(value).trim()
+fn extract_json(content: &str) -> Result<String, AppError> {
+    let normalized = content.replace("\r\n", "\n").replace('\r', "\n");
+    let candidate = normalized
+        .lines()
+        .enumerate()
+        .find_map(|(index, line)| {
+            let trimmed = line.trim();
+            if trimmed.starts_with("```") && trimmed[3..].trim().eq_ignore_ascii_case("json") {
+                Some(
+                    normalized
+                        .lines()
+                        .skip(index + 1)
+                        .take_while(|line| line.trim() != "```")
+                        .collect::<Vec<_>>()
+                        .join("\n"),
+                )
+            } else {
+                None
+            }
+        })
+        .unwrap_or(normalized);
+    let start = candidate
+        .find('{')
+        .ok_or_else(|| AppError::Ai("AI meal plan JSON is malformed".into()))?;
+    let mut depth = 0usize;
+    let mut in_string = false;
+    let mut escaped = false;
+    for (offset, character) in candidate[start..].char_indices() {
+        if in_string {
+            if escaped {
+                escaped = false;
+            } else if character == '\\' {
+                escaped = true;
+            } else if character == '"' {
+                in_string = false;
+            }
+        } else if character == '"' {
+            in_string = true;
+        } else if character == '{' {
+            depth += 1;
+        } else if character == '}' {
+            depth = depth.saturating_sub(1);
+            if depth == 0 {
+                return Ok(candidate[start..start + offset + character.len_utf8()].to_string());
+            }
+        }
+    }
+    Err(AppError::Ai("AI meal plan JSON is malformed".into()))
 }

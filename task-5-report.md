@@ -24,3 +24,19 @@
 
 - OpenAI, OpenRouter, and custom providers intentionally share one OpenAI-compatible adapter; provider names select compatibility behavior rather than separate wire formats.
 - No export or UI work included per task scope.
+
+## Review Fixes
+
+- Ported legacy 5%-TDEE normalization: menus outside tolerance scale grams and all nutrients to target TDEE; normalized items below 25g are removed.
+- Added end-to-end mocked-provider integration coverage for normalization and 25g filtering.
+- Implemented redacted `Debug` for `AiRequest`; API keys never appear in debug output or serialization.
+- Strengthened URL validation to reject query strings, fragments, credentials, private/link-local/metadata ranges, localhost domains, and unsafe schemes; endpoint paths are structurally joined.
+- URL-encoded Google model path segments before constructing `generateContent` endpoint.
+- Parser now handles CRLF, case-insensitive JSON fences, and prose surrounding a balanced JSON object while retaining strict `meal_plan` field validation.
+
+## Review Verification
+
+- `cargo fmt --manifest-path src-tauri/Cargo.toml -- --check` — passed
+- `cargo test --manifest-path src-tauri/Cargo.toml ai` — passed
+- `cargo test --manifest-path src-tauri/Cargo.toml` — 38 passed
+- `cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets --all-features -- -D warnings` — passed
