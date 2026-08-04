@@ -2,8 +2,10 @@
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "NutriSurvey",
   "version": "0.1.0",
-  "identifier": "com.nutrisurvey.app",
+  "identifier": "com.nutrisurvey.desktop",
   "build": {
+    "beforeDevCommand": "npm run dev",
+    "beforeBuildCommand": "npm run build",
     "frontendDist": "../out",
     "devUrl": "http://localhost:3000"
   },
@@ -34,12 +36,5 @@
     "longDescription": "Native nutrition analysis, food search, meal planning, and report export.",
     "copyright": "NutriSurvey contributors",
     "createUpdaterArtifacts": false
-  },
-  "plugins": {
-    "updater": {
-      "pubkey": "${TAURI_UPDATER_PUBLIC_KEY}",
-      "endpoints": ["${TAURI_UPDATER_ENDPOINT}"],
-      "dangerousInsecureTransportProtocol": false
-    }
   }
 }

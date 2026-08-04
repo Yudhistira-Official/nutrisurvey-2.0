@@ -61,6 +61,7 @@ jobs:
           cache: npm
       - uses: dtolnay/rust-toolchain@stable
       - run: npm ci
+      - run: npm run build
       - run: npm run tauri:build -- ${{ matrix.args }}
       - name: Upload unsigned bundles
         if: ${{ !secrets.TAURI_SIGNING_PRIVATE_KEY }}
@@ -83,13 +84,24 @@ jobs:
         with:
           node-version: 22
           cache: npm
-      - uses: dtolnay/rust-toolchain@stable
       - uses: android-actions/setup-android@v3
+        with:
+          packages: 'platform-tools platforms;android-35 build-tools;35.0.0 ndk;27.2.12479018'
+      - uses: android-actions/setup-ndk@v3
+        id: setup-ndk
+        with:
+          ndk-version: 27.2.12479018
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android, armv7-linux-androideabi, i686-linux-android, x86_64-linux-android
       - run: npm ci
-      - run: npx tauri ${{ matrix.target }} init --ci
-      - run: npx tauri ${{ matrix.target }} build
+      - run: npm run build
+      - run: npx tauri android init --ci
+      - run: rustup target list --installed
+      - run: npx tauri android build --ci
         env:
-          NDK_HOME: ${{ env.ANDROID_NDK_HOME }}
+          NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
+          ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
       - name: Upload unsigned mobile bundles
         if: ${{ !secrets.ANDROID_KEYSTORE_PASSWORD }}
         uses: actions/upload-artifact@v4

@@ -40,7 +40,9 @@ cargo test --manifest-path src-tauri/Cargo.toml
 npm run tauri:build
 ```
 
-Desktop bundles are written below `src-tauri/target/release/bundle`. Build commands use Tauri's platform defaults; signing credentials are supplied by the CI environment or local keychain and are never committed.
+Desktop bundles are written below `src-tauri/target/release/bundle`. `tauri build` runs `npm run build` automatically through `beforeBuildCommand`, so stale or missing `out/` content is not packaged. Signing credentials are supplied by the CI environment or local keychain and are never committed.
+
+Updater support is intentionally disabled for this migration release: no public key, endpoint, or signing metadata is present. Enable Tauri updater only in a release change after generating a real keypair, publishing signed update artifacts, and storing the public key plus endpoint as reviewed repository configuration; keep private signing keys in CI secrets.
 
 Mobile project setup and builds:
 
@@ -51,7 +53,7 @@ npx tauri ios init
 npm run tauri:build -- ios
 ```
 
-Android signing uses Gradle/Android keystore environment or runner secrets. iOS signing uses Xcode, certificates, and provisioning profiles supplied through the runner. Without signing inputs, CI performs compile/build checks and uploads unsigned outputs where available.
+Android CI installs Android platform 35, build-tools 35.0.0, NDK 27.2.12479018, and all Rust Android targets before initializing and building the Tauri project. Android signing uses Gradle/Android keystore environment or runner secrets. iOS signing uses Xcode, certificates, and provisioning profiles supplied through the runner. Without signing inputs, CI performs compile/build checks and uploads unsigned outputs where available.
 
 ## Data and files
 
