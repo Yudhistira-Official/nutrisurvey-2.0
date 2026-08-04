@@ -1,11 +1,61 @@
 pub mod error;
+pub mod foods;
+pub mod import;
 pub mod models;
 pub mod storage;
 
+use std::sync::Arc;
+use tauri::{Manager, State};
+
+pub struct AppState {
+    pub storage: Arc<storage::Storage>,
+}
+
 pub mod commands {
+    use super::*;
+
     #[tauri::command]
     pub fn ping() -> &'static str {
         "pong"
+    }
+
+    #[tauri::command]
+    pub async fn food_search(
+        state: State<'_, AppState>,
+        query: String,
+        limit: Option<u32>,
+    ) -> Result<Vec<models::FoodResult>, error::AppError> {
+        foods::search(&state.storage, &query, limit.unwrap_or(20)).await
+    }
+
+    #[tauri::command]
+    pub async fn food_status(
+        state: State<'_, AppState>,
+    ) -> Result<foods::FoodStatus, error::AppError> {
+        foods::status(&state.storage).await
+    }
+
+    #[tauri::command]
+    pub async fn nutrient_list(
+        state: State<'_, AppState>,
+    ) -> Result<Vec<models::NutrientSummary>, error::AppError> {
+        foods::list_nutrients(&state.storage).await
+    }
+
+    #[tauri::command]
+    pub async fn import_food_csv(
+        state: State<'_, AppState>,
+        bytes: Vec<u8>,
+        source_name: String,
+    ) -> Result<u64, error::AppError> {
+        let safe_name = std::path::Path::new(&source_name)
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("import.csv");
+        let destination = state.storage.app_data_dir().join("imports").join(safe_name);
+        tokio::fs::create_dir_all(destination.parent().unwrap()).await?;
+        tokio::fs::write(destination, &bytes).await?;
+        import::import_csv(&state.storage, &bytes, safe_name).await
     }
 }
 
@@ -14,9 +64,44 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
-        .invoke_handler(tauri::generate_handler![commands::ping])
+        .setup(|app| {
+            let storage = tauri::async_runtime::block_on(storage::Storage::open(app.handle()))?;
+            let storage = Arc::new(storage);
+            tauri::async_runtime::block_on(seed_resources(&storage))?;
+            app.manage(AppState { storage });
+            Ok(())
+        })
+        .invoke_handler(tauri::generate_handler![
+            commands::ping,
+            commands::food_search,
+            commands::food_status,
+            commands::nutrient_list,
+            commands::import_food_csv
+        ])
         .run(tauri::generate_context!())
         .expect("error while running NutriSurvey");
+}
+
+async fn seed_resources(storage: &storage::Storage) -> Result<(), error::AppError> {
+    if foods::status(storage).await?.is_ready {
+        return Ok(());
+    }
+    let mut entries = tokio::fs::read_dir(storage.resource_dir()).await?;
+    while let Some(entry) = entries.next_entry().await? {
+        let path = entry.path();
+        if path.extension().and_then(|extension| extension.to_str()) == Some("csv") {
+            let bytes = tokio::fs::read(&path).await?;
+            import::import_csv(
+                storage,
+                &bytes,
+                path.file_name()
+                    .and_then(|name| name.to_str())
+                    .unwrap_or("resource.csv"),
+            )
+            .await?;
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]

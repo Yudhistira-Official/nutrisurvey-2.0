@@ -101,7 +101,7 @@ pub struct FoodResult {
     pub nutrients: HashMap<String, f64>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 #[serde(rename_all = "camelCase")]
 pub struct NutrientSummary {
     pub name: String,
