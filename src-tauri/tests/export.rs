@@ -1,4 +1,5 @@
 use nutrisurvey_lib::{
+    commands,
     error::AppError,
     export::{self, ExportRequest, FoodEntry, MealTime, NutritionTargets},
 };
@@ -106,6 +107,61 @@ fn mobile_delivery_is_explicitly_unsupported_without_share_plugin() {
     assert!(
         matches!(error, AppError::Export(message) if message.contains("mobile") && message.contains("share"))
     );
+}
+
+#[test]
+fn command_delivery_boundary_preserves_injected_cancel_error() {
+    let result =
+        commands::export_word_with_handler(request(Vec::new()), |_result: export::ExportResult| {
+            Err(AppError::Export("Penyimpanan dibatalkan".into()))
+        });
+    assert!(
+        matches!(result, Err(AppError::Export(message)) if message == "Penyimpanan dibatalkan")
+    );
+}
+
+#[test]
+fn command_delivery_boundary_preserves_injected_conversion_error() {
+    let result =
+        commands::export_word_with_handler(request(Vec::new()), |_result: export::ExportResult| {
+            Err(AppError::Export("invalid dialog path".into()))
+        });
+    assert!(matches!(result, Err(AppError::Export(message)) if message == "invalid dialog path"));
+}
+
+#[test]
+fn command_delivery_boundary_returns_injected_success() {
+    let result = commands::export_word_with_handler(
+        request(Vec::new()),
+        |mut rendered: export::ExportResult| {
+            rendered.saved_path = Some("selected/report.rtf".into());
+            rendered.delivery = export::ExportDelivery::Saved;
+            Ok(rendered)
+        },
+    )
+    .unwrap();
+    assert_eq!(result.delivery, export::ExportDelivery::Saved);
+    assert_eq!(result.saved_path.as_deref(), Some("selected/report.rtf"));
+}
+
+#[test]
+fn command_delivery_boundary_preserves_invalid_extension_error() {
+    let result =
+        commands::export_word_with_handler(request(Vec::new()), |_result: export::ExportResult| {
+            Err(AppError::Export(
+                "Lokasi penyimpanan harus berakhiran .rtf".into(),
+            ))
+        });
+    assert!(matches!(result, Err(AppError::Export(message)) if message.contains(".rtf")));
+}
+
+#[test]
+fn command_delivery_boundary_preserves_mobile_unsupported_error() {
+    let result =
+        commands::export_word_with_handler(request(Vec::new()), |_result: export::ExportResult| {
+            export::mobile_delivery_error()
+        });
+    assert!(matches!(result, Err(AppError::Export(message)) if message.contains("mobile")));
 }
 
 #[test]

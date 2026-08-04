@@ -78,40 +78,71 @@ pub mod commands {
         ai::generate_menu(&state.storage, request).await
     }
 
+    pub trait ExportDeliveryHandler {
+        fn deliver(
+            self,
+            result: export::ExportResult,
+        ) -> Result<export::ExportResult, error::AppError>;
+    }
+
+    impl<F> ExportDeliveryHandler for F
+    where
+        F: FnOnce(export::ExportResult) -> Result<export::ExportResult, error::AppError>,
+    {
+        fn deliver(
+            self,
+            result: export::ExportResult,
+        ) -> Result<export::ExportResult, error::AppError> {
+            self(result)
+        }
+    }
+
+    pub fn export_word_with_handler<H>(
+        request: export::ExportRequest,
+        handler: H,
+    ) -> Result<export::ExportResult, error::AppError>
+    where
+        H: ExportDeliveryHandler,
+    {
+        let template = include_bytes!("../../Assets/template.rtf");
+        let bytes = export::render_rtf(request, template)?;
+        handler.deliver(export::result(bytes))
+    }
+
     #[tauri::command]
     pub fn export_word(
         app: AppHandle,
         request: export::ExportRequest,
     ) -> Result<export::ExportResult, error::AppError> {
-        let template = include_bytes!("../../Assets/template.rtf");
-        let bytes = export::render_rtf(request, template)?;
-        let initial = export::result(bytes.clone());
-
         #[cfg(desktop)]
         {
             use tauri_plugin_dialog::DialogExt;
 
-            let selected = app
-                .dialog()
-                .file()
-                .set_file_name(&initial.filename)
-                .add_filter("Rich Text Format", &["rtf"])
-                .blocking_save_file();
-            let selected = export::resolve_selected_path(selected.map(|path| path.into_path()))?;
-            let path = export::validate_selected_path(selected.as_deref())?;
-            std::fs::write(path, &bytes)?;
-            Ok(export::ExportResult {
-                delivery: export::ExportDelivery::Saved,
-                saved_path: Some(path.to_string_lossy().into_owned()),
-                ..initial
+            export_word_with_handler(request, |initial: export::ExportResult| {
+                let selected = app
+                    .dialog()
+                    .file()
+                    .set_file_name(&initial.filename)
+                    .add_filter("Rich Text Format", &["rtf"])
+                    .blocking_save_file();
+                let selected =
+                    export::resolve_selected_path(selected.map(|path| path.into_path()))?;
+                let path = export::validate_selected_path(selected.as_deref())?;
+                std::fs::write(path, &initial.bytes)?;
+                Ok(export::ExportResult {
+                    delivery: export::ExportDelivery::Saved,
+                    saved_path: Some(path.to_string_lossy().into_owned()),
+                    ..initial
+                })
             })
         }
 
         #[cfg(mobile)]
         {
             let _ = app;
-            let _ = initial;
-            export::mobile_delivery_error()
+            export_word_with_handler(request, |_initial: export::ExportResult| {
+                export::mobile_delivery_error()
+            })
         }
     }
 }
