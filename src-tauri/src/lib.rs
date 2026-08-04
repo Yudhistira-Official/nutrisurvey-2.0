@@ -9,7 +9,7 @@ pub mod nutrition;
 pub mod storage;
 
 use std::sync::Arc;
-use tauri::{Manager, State};
+use tauri::{AppHandle, Manager, State};
 
 pub struct AppState {
     pub storage: Arc<storage::Storage>,
@@ -80,11 +80,45 @@ pub mod commands {
 
     #[tauri::command]
     pub fn export_word(
+        app: AppHandle,
         request: export::ExportRequest,
     ) -> Result<export::ExportResult, error::AppError> {
         let template = include_bytes!("../../Assets/template.rtf");
         let bytes = export::render_rtf(request, template)?;
-        Ok(export::result(bytes))
+        let initial = export::result(bytes.clone());
+
+        #[cfg(desktop)]
+        {
+            use tauri_plugin_dialog::DialogExt;
+
+            let selected = app
+                .dialog()
+                .file()
+                .set_file_name(&initial.filename)
+                .add_filter("Rich Text Format", &["rtf"])
+                .blocking_save_file()
+                .ok_or_else(|| error::AppError::Export("Penyimpanan dibatalkan".into()))?;
+            let path = selected
+                .into_path()
+                .map_err(|error| error::AppError::Export(error.to_string()))?;
+            if path.extension().and_then(|value| value.to_str()) != Some("rtf") {
+                return Err(error::AppError::Export(
+                    "Lokasi penyimpanan harus berakhiran .rtf".into(),
+                ));
+            }
+            std::fs::write(&path, &bytes)?;
+            Ok(export::ExportResult {
+                delivery: export::ExportDelivery::Saved,
+                saved_path: Some(path.to_string_lossy().into_owned()),
+                ..initial
+            })
+        }
+
+        #[cfg(mobile)]
+        {
+            let _ = app;
+            Ok(initial)
+        }
     }
 }
 

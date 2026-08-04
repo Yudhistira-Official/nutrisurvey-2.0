@@ -41,14 +41,21 @@ fn bundled_template_renders_expected_report_sections() {
     assert!(output.contains("Telur"));
     assert!(output.contains("energy"));
     assert!(output.contains("2000,0"));
+    assert!(output.contains("protein\\tab 0,0 g(0%)\\tab 50,0 g"));
+    assert!(output.contains("energy\\tab 200,0 kcal\\tab 2000,0 kcal\\tab 10 %"));
+    assert!(output.contains("carbohydr.\\tab 40,0 g(80%)\\tab 300,0 g\\tab 13 %"));
+    assert!(output.contains("\\*\\themedata"));
 }
 
 #[test]
 fn unicode_and_rtf_controls_are_escaped() {
-    let bytes = export::render_rtf(request(vec![food("Nasi {\u{1F35A}} \\" )]), b"prefix ===================================================================== suffix \\par }{\\*\\themedata").unwrap();
+    let mut item = food("Nasi {\u{1F35A}} \\");
+    item.name.push_str("\nBaris\tDua");
+    let bytes = export::render_rtf(request(vec![item]), b"prefix ===================================================================== suffix \\par }{\\*\\themedata").unwrap();
     let output = String::from_utf8(bytes).unwrap();
     assert!(output.contains("\\u"));
     assert!(output.contains("Nasi \\{"));
+    assert!(output.contains("\\line Baris\\tab Dua"));
     assert!(!output.contains("Nasi {"));
 }
 
@@ -77,5 +84,6 @@ fn result_has_rtf_content_type_and_date_filename() {
     assert!(result.filename.starts_with("Laporan_Nutrisi_"));
     assert!(result.filename.ends_with(".rtf"));
     assert_eq!(result.bytes, vec![1, 2, 3]);
+    assert_eq!(result.delivery, export::ExportDelivery::Share);
     assert!(result.saved_path.is_none());
 }

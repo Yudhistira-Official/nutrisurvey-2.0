@@ -1,1 +1,1 @@
-{"default":{"identifier":"default","description":"Least-privilege permissions for the initial native scaffold.","local":true,"windows":["main"],"permissions":["core:default","dialog:allow-save","fs:allow-appdata-read","fs:allow-resource-read","fs:allow-write-file"]}}
+{"default":{"identifier":"default","description":"Least-privilege permissions for the initial native scaffold.","local":true,"windows":["main"],"permissions":["core:default","dialog:allow-save","fs:allow-appdata-read","fs:allow-resource-read"]}}

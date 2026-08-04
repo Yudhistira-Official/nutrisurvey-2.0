@@ -50,7 +50,15 @@ pub struct ExportResult {
     pub filename: String,
     pub content_type: String,
     pub bytes: Vec<u8>,
+    pub delivery: ExportDelivery,
     pub saved_path: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum ExportDelivery {
+    Share,
+    Saved,
 }
 
 fn default_serving_size() -> f64 {
@@ -162,7 +170,7 @@ pub fn render_rtf(request: ExportRequest, template: &[u8]) -> Result<Vec<u8>, Ap
     }
     body.push_str("\\pard \\ltrpar\\ql \\li0\\ri0\\nowidctlpar\\wrapdefault\\faauto\\rin0\\lin0\\itap0 {\\rtlch\\fcs1 \\af0 \\ltrch\\fcs0 \\f0\\kerning0 \\par \\hich\\af0\\dbch\\af31505\\loch\\f0 =====================================================================\\par }\\pard \\ltrpar\\qc \\li0\\ri0\\nowidctlpar\\wrapdefault\\faauto\\rin0\\lin0\\itap0 {\\rtlch\\fcs1 \\ab\\af0\\afs30 \\ltrch\\fcs0 \\b\\f0\\fs30\\kerning0 \\hich\\af0\\dbch\\af31505\\loch\\f0 HASIL PERHITUNGAN\\par }\\pard \\ltrpar\\ql \\li0\\ri0\\nowidctlpar\\wrapdefault\\faauto\\rin0\\lin0\\itap0 {\\rtlch\\fcs1 \\af0 \\ltrch\\fcs0 \\f0\\kerning0 \\hich\\af0\\dbch\\af31505\\loch\\f0 =====================================================================\\par }\\pard \\ltrpar\\ql \\li0\\ri0\\nowidctlpar\\tqc\\tx2900\\tqc\\tx5600\\tqc\\tx8300\\wrapdefault\\faauto\\rin0\\lin0\\itap0 {\\rtlch\\fcs1 \\af0 \\ltrch\\fcs0 \\f0\\kerning0 \\hich\\af0\\dbch\\af31505\\loch\\f0 Zat Gizi\\tab hasil analisis\\tab rekomendasi\\tab persentase\\par \\hich\\af0\\dbch\\af31505\\loch\\f0      \\tab nilai\\tab nilai/hari\\tab pemenuhan\\par }\\pard \\ltrpar\\ql \\li0\\ri0\\nowidctlpar\\wrapdefault\\faauto\\rin0\\lin0\\itap0 {\\rtlch\\fcs1 \\af0 \\ltrch\\fcs0 \\f0\\kerning0 \\hich\\af0\\dbch\\af31505\\loch\\f0 ______________________________________________________________________________\\par }\\pard \\ltrpar\\ql \\li0\\ri0\\nowidctlpar\\tqdec\\tx3000\\tqdec\\tx5700\\tqdec\\tx8400\\wrapdefault\\faauto\\rin0\\lin0\\itap0 {\\rtlch\\fcs1 \\af0 \\ltrch\\fcs0 \\f0\\kerning0 \\hich\\af0\\dbch\\af31505\\loch\\f0 ");
     for row in nutrient_rows(&totals, request.targets.as_ref(), total_energy) {
-        body.push_str(&escape_rtf(&row));
+        body.push_str(&row);
     }
     body.push('}');
     let mut output = String::with_capacity(template.len() + body.len());
@@ -177,6 +185,7 @@ pub fn result(bytes: Vec<u8>) -> ExportResult {
         filename: format!("Laporan_Nutrisi_{}.rtf", today()),
         content_type: CONTENT_TYPE.into(),
         bytes,
+        delivery: ExportDelivery::Share,
         saved_path: None,
     }
 }
@@ -190,6 +199,10 @@ fn escape_rtf(value: &str) -> String {
                 '\\' => out.push_str("\\\\"),
                 '{' => out.push_str("\\{"),
                 '}' => out.push_str("\\}"),
+                '\r' => out.push_str("\\line "),
+                '\n' => out.push_str("\\line "),
+                '\t' => out.push_str("\\tab "),
+                ch if ch.is_control() => out.push_str(&format!("\\u{}?", signed)),
                 ch => out.push(ch),
             }
         } else {
@@ -237,6 +250,11 @@ fn get_aliases(values: &HashMap<String, f64>, aliases: &[&str]) -> f64 {
         .sum()
 }
 fn format_number(value: f64, decimals: usize, width: usize) -> String {
+    let value = if value.abs() < 0.5 * 10_f64.powi(-(decimals as i32)) {
+        0.0
+    } else {
+        value
+    };
     let mut text = format!("{value:.decimals$}").replace('.', ",");
     if width > text.len() {
         text = format!("{:>width$}", text, width = width);
@@ -323,6 +341,11 @@ fn nutrient_rows(
                 }
             } else {
                 0.0
+            };
+            let macro_pct = if macro_pct.abs() < 0.5 {
+                0.0
+            } else {
+                macro_pct
             };
             let analysis = if ["protein", "fat", "carbohydr."].contains(name) {
                 format!("{} {}({:.0}%)", format_number(value, 1, 0), unit, macro_pct)
