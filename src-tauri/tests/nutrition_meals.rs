@@ -66,10 +66,45 @@ fn tdee_rejects_invalid_numeric_input() {
     assert!(result.is_err());
 }
 
+#[test]
+fn tdee_rejects_non_positive_factors() {
+    for factor in [0.0, -1.0] {
+        let activity = nutrition::calculate_tdee(nutrisurvey_lib::models::TdeeRequest {
+            weight_kg: 70.0,
+            height_cm: 175.0,
+            age: 30,
+            gender: "male".into(),
+            activity_factor: factor,
+            injury_factor: 1.0,
+            is_manual_factors: false,
+        });
+        let injury = nutrition::calculate_tdee(nutrisurvey_lib::models::TdeeRequest {
+            weight_kg: 70.0,
+            height_cm: 175.0,
+            age: 30,
+            gender: "male".into(),
+            activity_factor: 1.0,
+            injury_factor: factor,
+            is_manual_factors: false,
+        });
+        assert!(activity.is_err());
+        assert!(injury.is_err());
+    }
+}
+
 #[tokio::test]
 async fn recommendations_apply_combined_operators_and_cap() {
     let storage = storage().await;
-    sqlx::query("INSERT INTO foods (id,name,normalized_name,serving_size,serving_unit,servings_per_container) VALUES (1,'Food','food',100,'g',1)").execute(storage.pool()).await.unwrap();
+    for food_id in 1..=12 {
+        sqlx::query("INSERT INTO foods (id,name,normalized_name,serving_size,serving_unit,servings_per_container) VALUES (?,?,?,?,?,?)")
+            .bind(food_id)
+            .bind(format!("Food {food_id}"))
+            .bind(format!("food {food_id}"))
+            .bind(100.0)
+            .bind("g")
+            .bind(1.0)
+            .execute(storage.pool()).await.unwrap();
+    }
     for (id, name, amount) in [
         (1, "Protein", 30.0),
         (2, "Energy", 200.0),
@@ -83,13 +118,15 @@ async fn recommendations_apply_combined_operators_and_cap() {
             .execute(storage.pool())
             .await
             .unwrap();
-        sqlx::query("INSERT INTO food_nutrients (food_id,nutrient_id,amount) VALUES (?,?,?)")
-            .bind(1)
-            .bind(id)
-            .bind(amount)
-            .execute(storage.pool())
-            .await
-            .unwrap();
+        for food_id in 1..=12 {
+            sqlx::query("INSERT INTO food_nutrients (food_id,nutrient_id,amount) VALUES (?,?,?)")
+                .bind(food_id)
+                .bind(id)
+                .bind(amount)
+                .execute(storage.pool())
+                .await
+                .unwrap();
+        }
     }
     let result = foods::recommend(
         &storage,
@@ -113,7 +150,58 @@ async fn recommendations_apply_combined_operators_and_cap() {
     )
     .await
     .unwrap();
-    assert_eq!(result.len(), 1);
+    assert_eq!(result.len(), 10);
+}
+
+#[tokio::test]
+async fn recommendations_reject_unsupported_operator() {
+    let storage = storage().await;
+    let result = foods::recommend(
+        &storage,
+        &[RecommendationFilter {
+            nutrient: "protein".into(),
+            operator: ">=".into(),
+            value: 20.0,
+        }],
+    )
+    .await;
+    assert!(matches!(
+        result,
+        Err(nutrisurvey_lib::error::AppError::Validation(_))
+    ));
+}
+
+#[tokio::test]
+async fn recommendations_return_empty_for_missing_nutrient() {
+    let storage = storage().await;
+    sqlx::query("INSERT INTO foods (id,name,normalized_name,serving_size,serving_unit,servings_per_container) VALUES (1,'Food','food',100,'g',1)")
+        .execute(storage.pool()).await.unwrap();
+    let result = foods::recommend(
+        &storage,
+        &[RecommendationFilter {
+            nutrient: "missing".into(),
+            operator: ">".into(),
+            value: 0.0,
+        }],
+    )
+    .await
+    .unwrap();
+    assert!(result.is_empty());
+}
+
+#[test]
+fn command_registration_exposes_tdee_command_contract() {
+    let result = nutrisurvey_lib::commands::calculate_tdee(nutrisurvey_lib::models::TdeeRequest {
+        weight_kg: 70.0,
+        height_cm: 175.0,
+        age: 30,
+        gender: "male".into(),
+        activity_factor: 1.0,
+        injury_factor: 1.0,
+        is_manual_factors: false,
+    })
+    .unwrap();
+    assert_eq!(result.formula_used, "Harris-Benedict (Clinical Edition)");
 }
 
 #[tokio::test]

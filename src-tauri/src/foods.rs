@@ -33,11 +33,43 @@ pub async fn search(
     } else {
         limit.min(20)
     };
-    let rows = sqlx::query_as::<_, FoodSearchRow>(
-        "SELECT f.id, f.name, f.brand, f.category, f.serving_size, f.serving_unit, f.servings_per_container, n.name AS nutrient_name, fn.amount FROM (SELECT * FROM foods WHERE (? = '' OR normalized_name LIKE '%' || ? || '%') ORDER BY name LIMIT ?) f LEFT JOIN food_nutrients fn ON fn.food_id = f.id LEFT JOIN nutrients n ON n.id = fn.nutrient_id ORDER BY f.name",
-    )
-    .bind(query.trim().to_lowercase()).bind(query.trim().to_lowercase()).bind(cap as i64)
-    .fetch_all(storage.pool()).await?;
+    fetch_foods(storage, query, cap as i64, true).await
+}
+
+async fn all_foods(storage: &Storage) -> Result<Vec<FoodResult>, AppError> {
+    fetch_foods(storage, "", i64::MAX, true).await
+}
+
+pub(crate) async fn candidate_foods(
+    storage: &Storage,
+    query: &str,
+    limit: i64,
+) -> Result<Vec<FoodResult>, AppError> {
+    fetch_foods(storage, query, limit, false).await
+}
+
+async fn fetch_foods(
+    storage: &Storage,
+    query: &str,
+    limit: i64,
+    order_by_name: bool,
+) -> Result<Vec<FoodResult>, AppError> {
+    let inner_order = if order_by_name { " ORDER BY name" } else { "" };
+    let outer_order = if order_by_name {
+        " ORDER BY f.name"
+    } else {
+        ""
+    };
+    let sql = format!(
+        "SELECT f.id, f.name, f.brand, f.category, f.serving_size, f.serving_unit, f.servings_per_container, n.name AS nutrient_name, fn.amount FROM (SELECT * FROM foods WHERE (? = '' OR normalized_name LIKE '%' || ? || '%'){} LIMIT ?) f LEFT JOIN food_nutrients fn ON fn.food_id = f.id LEFT JOIN nutrients n ON n.id = fn.nutrient_id{}",
+        inner_order, outer_order
+    );
+    let rows = sqlx::query_as::<_, FoodSearchRow>(&sql)
+        .bind(query.trim().to_lowercase())
+        .bind(query.trim().to_lowercase())
+        .bind(limit)
+        .fetch_all(storage.pool())
+        .await?;
     let mut result = Vec::new();
     for row in rows {
         if let Some(food) = result
@@ -77,7 +109,15 @@ pub async fn recommend(
             "at least one filter is required".into(),
         ));
     }
-    let mut results = search(storage, "", 10).await?;
+    for filter in filters {
+        if !matches!(filter.operator.as_str(), ">" | "<" | "=") {
+            return Err(AppError::Validation(format!(
+                "unsupported recommendation operator: {}",
+                filter.operator
+            )));
+        }
+    }
+    let mut results = all_foods(storage).await?;
     for filter in filters {
         let nutrient = crate::import::canonical_nutrient_name(&filter.nutrient);
         results.retain(|food| {

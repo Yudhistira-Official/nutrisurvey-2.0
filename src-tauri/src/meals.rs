@@ -15,7 +15,7 @@ pub async fn map_ai_items(
         if keyword.is_empty() || item.suggested_grams <= 0 {
             continue;
         }
-        let candidates = crate::foods::search(storage, &keyword, 25).await?;
+        let candidates = crate::foods::candidate_foods(storage, &keyword, 25).await?;
         let food = candidates.into_iter().min_by_key(|food| {
             (
                 match_score(&normalize(&food.name), &keyword),

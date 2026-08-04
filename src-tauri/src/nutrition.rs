@@ -10,7 +10,9 @@ pub fn calculate_tdee(request: TdeeRequest) -> Result<TdeeResponse, AppError> {
         || request.height_cm <= 0.0
         || request.age <= 0
         || !request.activity_factor.is_finite()
+        || request.activity_factor <= 0.0
         || !request.injury_factor.is_finite()
+        || request.injury_factor <= 0.0
     {
         return Err(AppError::Validation(
             "numeric input must be finite and positive".into(),
