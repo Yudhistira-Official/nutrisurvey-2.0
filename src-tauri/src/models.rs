@@ -138,6 +138,20 @@ pub struct RecommendationFilter {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AiRequest {
+    pub target_tdee: i32,
+    pub target_carbs: i32,
+    pub target_protein: i32,
+    pub target_fat: i32,
+    pub available_meal_types: Vec<String>,
+    pub provider: String,
+    pub model: String,
+    #[serde(skip_serializing)]
+    pub api_key: String,
+    pub base_url: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AiMealInput {
     pub meal_type: String,
     pub food_keyword: String,

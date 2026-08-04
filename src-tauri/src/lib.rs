@@ -1,3 +1,4 @@
+pub mod ai;
 pub mod error;
 pub mod foods;
 pub mod import;
@@ -67,6 +68,14 @@ pub mod commands {
     ) -> Result<u64, error::AppError> {
         import::copy_and_import(&state.storage, &bytes, &source_name).await
     }
+
+    #[tauri::command]
+    pub async fn generate_ai_menu(
+        state: State<'_, AppState>,
+        request: models::AiRequest,
+    ) -> Result<Vec<models::MappedMealItem>, error::AppError> {
+        ai::generate_menu(&state.storage, request).await
+    }
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -88,7 +97,8 @@ pub fn run() {
             commands::calculate_tdee,
             commands::food_recommendations,
             commands::nutrient_list,
-            commands::import_food_csv
+            commands::import_food_csv,
+            commands::generate_ai_menu
         ])
         .run(tauri::generate_context!())
         .expect("error while running NutriSurvey");
