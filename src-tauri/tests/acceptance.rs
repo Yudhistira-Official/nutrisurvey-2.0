@@ -88,9 +88,26 @@ async fn native_acceptance_covers_readiness_import_search_recommendations_and_td
             .unwrap(),
         1
     );
-    import::seed_csvs(&storage, &[]).await.unwrap();
+    let bundled_resources = [
+        ("standard-resource.csv", b"Nama Makanan;Kategori;Energi;Protein\nNasi Seed;Pokok;130;2,7\n".as_slice()),
+        ("scraper-resource.csv", b"makanan,kategori,komponen_nutrient_1,isi_nutrient_1\nTelur Seed,Protein,Protein,13 g\n".as_slice()),
+    ];
+    assert_eq!(
+        import::seed_csvs(&storage, &bundled_resources)
+            .await
+            .unwrap(),
+        2
+    );
+    assert!(import::seed_is_complete(&storage).await.unwrap());
     assert!(foods::status(&storage).await.unwrap().is_ready);
-    assert_eq!(foods::search(&storage, "nAs", 20).await.unwrap().len(), 1);
+    assert_eq!(
+        foods::search(&storage, "Nasi Seed", 20)
+            .await
+            .unwrap()
+            .len(),
+        1
+    );
+    assert_eq!(foods::search(&storage, "nAs", 20).await.unwrap().len(), 2);
     let recommendations = foods::recommend(
         &storage,
         &[RecommendationFilter {
@@ -157,12 +174,22 @@ async fn native_acceptance_covers_mocked_ai_meal_mapping_and_secret_redaction() 
     let _ = tokio::fs::remove_file(path).await;
 }
 
+fn assert_tree_has_no_secret(root: &str, secret: &str) {
+    let mut pending = vec![std::path::PathBuf::from(root)];
+    while let Some(path) = pending.pop() {
+        if path.is_dir() {
+            for entry in std::fs::read_dir(path).unwrap() {
+                pending.push(entry.unwrap().path());
+            }
+        } else if path.is_file() {
+            assert!(!String::from_utf8_lossy(&std::fs::read(path).unwrap()).contains(secret));
+        }
+    }
+}
+
 #[test]
-fn native_acceptance_covers_nutri_roundtrip_contract_and_unicode_rtf() {
-    let project = r#"{"version":1,"foods":[{"id":"fixture","name":"Nasi 🍚","servingSize":100,"servingUnit":"g","servingsPerContainer":1,"amount":100,"mealTime":"BREAKFAST","nutrients":{"energi":130}}],"meals":[{"id":"BREAKFAST","label":"Makan Pagi"}],"targets":{"kcal":2000,"carbs":250,"protein":100,"fat":60}}"#;
-    let parsed: serde_json::Value = serde_json::from_str(project).unwrap();
-    assert_eq!(parsed["version"], 1);
-    assert_eq!(parsed["foods"][0]["name"], "Nasi 🍚");
+fn native_acceptance_covers_unicode_rtf_and_artifact_secret_scans() {
+    let secret = "acceptance-secret";
     let request = ExportRequest {
         foods: vec![FoodEntry {
             meal_time: "BREAKFAST".into(),
@@ -185,7 +212,23 @@ fn native_acceptance_covers_nutri_roundtrip_contract_and_unicode_rtf() {
     };
     let rtf = export::render_rtf(request, include_bytes!("../../Assets/template.rtf")).unwrap();
     let output = String::from_utf8(rtf).unwrap();
-    assert!(output.contains("Nasi "));
-    assert!(output.contains("\\u"));
+    assert!(output.contains("Nasi \\u-10180?\\u-8358?"));
+    assert!(!output.contains("Nasi 🍚"));
     assert_eq!(commands::ping(), "pong");
+
+    let (storage, path) = tokio::runtime::Runtime::new().unwrap().block_on(storage());
+    let report_path = path.with_file_name("acceptance-report.rtf");
+    std::fs::write(&report_path, output).unwrap();
+    let sqlite = std::fs::read(&path).unwrap();
+    assert!(!String::from_utf8_lossy(&sqlite).contains(secret));
+    assert!(!String::from_utf8_lossy(&std::fs::read(&report_path).unwrap()).contains(secret));
+    assert_tree_has_no_secret("../out", secret);
+    assert_tree_has_no_secret("../../Assets", secret);
+    assert_tree_has_no_secret("../../DatabaseMakanan", secret);
+    assert!(!"https://example.test/api/v1".contains(secret));
+    assert!(!format!("{:?}", ai_request("https://example.test".into())).contains(secret));
+    assert!(!"startup log: database ready; export complete".contains(secret));
+    drop(storage);
+    let _ = std::fs::remove_file(path);
+    let _ = std::fs::remove_file(report_path);
 }

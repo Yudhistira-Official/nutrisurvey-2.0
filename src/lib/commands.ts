@@ -6,6 +6,7 @@ import type {
   ExportRequest,
   ExportResult,
   FoodResult,
+  FoodStatus,
   NutrientSummary,
   RecommendationFilter,
   TdeeRequest,
@@ -23,6 +24,7 @@ export const invokeCommand = createCommandInvoker();
 
 export function createCommandAdapters(invokeFn: CommandInvoker = invokeCommand) {
   return {
+    getFoodStatus: () => invokeFn<FoodStatus>('food_status'),
     searchFoodsByName: (query: string) => invokeFn<FoodResult[]>('food_search', { query, limit: 20 }),
     getNutrientList: () => invokeFn<NutrientSummary[]>('nutrient_list'),
     getRecommendations: (filters: RecommendationFilter[]) => invokeFn<FoodResult[]>('food_recommendations', { filters }),
@@ -32,6 +34,10 @@ export function createCommandAdapters(invokeFn: CommandInvoker = invokeCommand) 
 }
 
 const adapters = createCommandAdapters();
+
+export function getFoodStatus(): Promise<FoodStatus> {
+  return adapters.getFoodStatus();
+}
 
 export function searchFoodsByName(query: string): Promise<FoodResult[]> {
   return adapters.searchFoodsByName(query);

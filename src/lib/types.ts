@@ -12,6 +12,7 @@ export type FoodResult = {
 };
 
 export type NutrientSummary = { name: string; unit: string; amount: number };
+export type FoodStatus = { foodCount: number; isReady: boolean };
 export type RecommendationFilter = { nutrient: string; operator: '<' | '>' | '='; value: number };
 export type MealTime = { id: string; label: string };
 export type Targets = { kcal: number; carbs: number; protein: number; fat: number };

@@ -3,7 +3,9 @@ import assert from 'node:assert/strict';
 import { calculateTotals, calculateMacroTargets, implementAiRows, moveFoodToMeal, parseProject, serializeProject } from '../src/lib/types.ts';
 import { createCommandAdapters } from '../src/lib/commands.ts';
 import { classifyUiError } from '../src/lib/types.ts';
-import { readFileSync } from 'node:fs';
+import { readFileSync, mkdtempSync, writeFileSync, readFileSync as readProjectFile, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 test('dashboard totals preserve serving scaling and targets', () => {
   const foods = [{
@@ -23,6 +25,24 @@ test('versioned project round trip rejects unsupported versions', () => {
   assert.deepEqual(parseProject(serializeProject(project)), { version: 1, ...project });
   assert.throws(() => parseProject(JSON.stringify({ ...project, version: 2 })), /tidak didukung/);
   assert.throws(() => parseProject(JSON.stringify({ version: 1, foods: [{ id: 'x' }], meals: project.meals, targets: project.targets })), /tidak valid/);
+});
+
+test('real .nutri file write, read, and re-import preserves project data', () => {
+  const project = {
+    foods: [{ id: 'fixture-1', name: 'Nasi 🍚', servingSize: 100, servingUnit: 'g', servingsPerContainer: 1, amount: 125, mealTime: 'BREAKFAST', nutrients: { energi: 130 } }],
+    meals: [{ id: 'BREAKFAST', label: 'Makan Pagi' }],
+    targets: { kcal: 2000, carbs: 250, protein: 100, fat: 60 },
+  };
+  const directory = mkdtempSync(join(tmpdir(), 'nutrisurvey-nutri-'));
+  const path = join(directory, 'fixture.nutri');
+  try {
+    writeFileSync(path, serializeProject(project), 'utf8');
+    const imported = parseProject(readProjectFile(path, 'utf8'));
+    assert.deepEqual(imported, { version: 1, ...project });
+    assert.equal(imported.foods[0].name, 'Nasi 🍚');
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
 });
 
 test('search adapter forwards query and limit', async () => {

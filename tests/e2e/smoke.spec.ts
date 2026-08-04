@@ -1,7 +1,7 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
 
 const appUrl = process.env.NUTRISURVEY_SMOKE_URL || 'http://127.0.0.1:4173';
-
+const mockedSecret = 'acceptance-secret';
 const foods = [{
   id: 1,
   name: 'Nasi Fixture',
@@ -13,10 +13,17 @@ const foods = [{
   nutrients: { energi: 130, protein: 2.7, 'karbohidrat total': 28.2, 'lemak total': 0.3 },
 }];
 
-async function installMockBridge(page: import('@playwright/test').Page) {
-  await page.addInitScript(({ fixtureFoods }) => {
+async function installMockBridge(page: Page) {
+  await page.addInitScript(({ fixtureFoods, secret }) => {
+    const state = {
+      calls: [] as Array<{ command: string; payload: unknown }>,
+      projectBytes: [] as number[],
+      importedBytes: [] as number[],
+    };
     const bridge = {
-      invoke: async (command: string) => {
+      invoke: async (command: string, payload?: { request?: unknown; bytes?: number[] } | Uint8Array, options?: { headers?: Record<string, string> }) => {
+        state.calls.push({ command, payload: { payload, options } });
+        const args = payload as { bytes?: number[] } | Uint8Array | undefined;
         if (command === 'ping') return 'pong';
         if (command === 'food_status') return { foodCount: fixtureFoods.length, isReady: true };
         if (command === 'food_search') return fixtureFoods;
@@ -24,12 +31,16 @@ async function installMockBridge(page: import('@playwright/test').Page) {
           { name: 'energi', unit: 'kcal', amount: 130 },
           { name: 'protein', unit: 'g', amount: 2.7 },
         ];
+        if (command === 'food_recommendations') return fixtureFoods;
         if (command === 'calculate_tdee') return {
           basalMetabolicRate: 1696,
           totalDailyEnergyExpenditure: 2035.2,
           formulaUsed: 'Harris-Benedict (Clinical Edition)',
         };
-        if (command === 'food_recommendations') return fixtureFoods;
+        if (command === 'import_food_csv') {
+          state.importedBytes = payload && !(payload instanceof Uint8Array) ? payload.bytes || [] : [];
+          return 1;
+        }
         if (command === 'generate_ai_menu') return [{
           meal_type: 'Makan Pagi',
           requested_keyword: 'Nasi Fixture',
@@ -47,31 +58,49 @@ async function installMockBridge(page: import('@playwright/test').Page) {
         if (command === 'export_word') return {
           filename: 'Laporan_Nutrisi_acceptance.rtf',
           contentType: 'application/rtf',
-          bytes: [123],
+          bytes: [123, 92, 117, 53, 53, 51, 53, 54, 63],
           delivery: 'saved',
           savedPath: 'acceptance-report.rtf',
         };
+        if (command === 'plugin:dialog|save') return 'fixture.nutri';
+        if (command === 'plugin:dialog|open') return 'fixture.nutri';
+        if (command === 'plugin:fs|write_file') {
+          state.projectBytes = args instanceof Uint8Array ? Array.from(args) : [];
+          return null;
+        }
+        if (command === 'plugin:fs|read_file') return state.projectBytes.length ? state.projectBytes : [78, 97, 109, 97, 32, 77, 97, 107, 97, 110, 97, 110, 59, 69, 110, 101, 114, 103, 105, 10, 70, 105, 120, 116, 117, 114, 101, 59, 49, 51, 48];
         throw new Error(`Unexpected command: ${command}`);
       },
     };
-    (window as Window & { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__ = bridge;
-  }, { fixtureFoods: foods });
+    (window as Window & { __TAURI_INTERNALS__?: unknown; __NUTRISURVEY_SMOKE__?: unknown }).__TAURI_INTERNALS__ = bridge;
+    (window as Window & { __NUTRISURVEY_SMOKE__?: unknown }).__NUTRISURVEY_SMOKE__ = { state, secret };
+  }, { fixtureFoods: foods, secret: mockedSecret });
 }
 
-test('native UI smoke covers readiness, search, TDEE, meal, mocked AI, and report export', async ({ page }) => {
+test('native UI smoke covers readiness, search, recommendations, import, roundtrip, TDEE, AI, and report export', async ({ page }) => {
   await installMockBridge(page);
   await page.goto(appUrl);
   await expect(page.getByRole('heading', { name: 'Manajemen Menu' })).toBeVisible();
-
-  await page.getByRole('button', { name: 'Simpan Proyek' }).click();
-  await page.getByRole('button', { name: 'Buka Proyek' }).click();
-  await page.getByRole('button', { name: 'Impor CSV' }).click();
-  await page.getByRole('button', { name: 'Word Report' }).click();
+  await expect(page.getByText('Database siap')).toBeVisible();
 
   await page.locator('tbody button').first().click();
   await page.getByPlaceholder('Ketik nama makanan...').fill('nasi');
   await page.getByRole('button', { name: /Nasi Fixture/ }).click();
   await expect(page.getByText('Nasi Fixture')).toBeVisible();
+
+  await page.getByRole('button', { name: 'Rekomendasi' }).click();
+  await page.getByRole('button', { name: 'Cari Rekomendasi' }).click();
+  await expect(page.getByText('Nasi Fixture')).toBeVisible();
+  await page.getByRole('button', { name: '+ Tambah' }).click();
+  await expect(page.getByText('Daftar Konsumsi')).toBeVisible();
+
+  await page.getByRole('button', { name: 'Impor CSV' }).click();
+  await expect(page.getByText(/Database berhasil diimpor: 1 baris/)).toBeVisible();
+
+  await page.getByRole('button', { name: 'Simpan Proyek' }).click();
+  await expect(page.getByText('Proyek berhasil disimpan')).toBeVisible();
+  await page.getByRole('button', { name: 'Buka Proyek' }).click();
+  await expect(page.getByText('Proyek berhasil diimpor')).toBeVisible();
 
   await page.getByRole('button', { name: 'Kalkulator TDEE' }).click();
   await page.getByRole('button', { name: 'Hitung & Terapkan' }).click();
@@ -79,11 +108,25 @@ test('native UI smoke covers readiness, search, TDEE, meal, mocked AI, and repor
 
   await page.getByRole('button', { name: 'AI Meal Planner' }).click();
   await page.getByLabel('Model').fill('acceptance-model');
-  await page.getByLabel('API Key').fill('acceptance-secret');
+  await page.getByLabel('API Key').fill(mockedSecret);
   await page.getByRole('button', { name: 'Generate AI Meal Plan' }).click();
   await expect(page.getByText('Nasi Fixture')).toBeVisible();
   await page.getByRole('button', { name: /Implement/ }).click();
 
   await page.getByRole('button', { name: 'Word Report' }).click();
-  await expect(page.getByText(/Laporan berhasil diekspor|Laporan tersimpan/)).toBeVisible();
+  await expect(page.getByText(/Laporan tersimpan/)).toBeVisible();
+  const smokeState = await page.evaluate(() => (window as Window & { __NUTRISURVEY_SMOKE__?: { state: { calls: Array<{ command: string; payload: unknown }>; projectBytes: number[]; importedBytes: number[] } } }).__NUTRISURVEY_SMOKE__?.state);
+  expect(smokeState?.calls.map(call => call.command)).toEqual(expect.arrayContaining([
+    'food_status',
+    'food_search',
+    'food_recommendations',
+    'import_food_csv',
+    'calculate_tdee',
+    'generate_ai_menu',
+    'export_word',
+  ]));
+  expect(smokeState?.projectBytes.length).toBeGreaterThan(0);
+  expect(smokeState?.importedBytes.length).toBeGreaterThan(0);
+  expect(new TextDecoder().decode(Uint8Array.from(smokeState?.projectBytes || []))).not.toContain(mockedSecret);
+  expect(new TextDecoder().decode(Uint8Array.from(smokeState?.importedBytes || []))).not.toContain(mockedSecret);
 });
