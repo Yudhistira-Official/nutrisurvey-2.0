@@ -1,21 +1,27 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { invokeCommand } from '../lib/commands';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { open, save } from '@tauri-apps/plugin-dialog';
+import { readFile, writeFile } from '@tauri-apps/plugin-fs';
+import Navigation, { type Section } from '../components/Navigation';
+import Dashboard from '../components/Dashboard';
+import FoodSearch from '../components/FoodSearch';
+import Recommendations from '../components/Recommendations';
+import TdeeCalculator from '../components/TdeeCalculator';
+import AiMealPlanner from '../components/AiMealPlanner';
+import ReportActions from '../components/ReportActions';
+import { getNutrientList } from '../lib/commands';
+import { defaultMeals, defaultTargets, parseProject, serializeProject, type AiMealRow, type FoodResult, type MealTime, type NutrientSummary, type SessionFood, type Targets } from '../lib/types';
+
+const id = () => `${Date.now()}-${Math.random()}`;
 
 export default function Home() {
-  const [status, setStatus] = useState('Checking native bridge…');
-
-  useEffect(() => {
-    invokeCommand<string>('ping')
-      .then(setStatus)
-      .catch(() => setStatus('Native bridge unavailable'));
-  }, []);
-
-  return (
-    <main>
-      <h1>NutriSurvey</h1>
-      <p>{status}</p>
-    </main>
-  );
+  const [section, setSection] = useState<Section>('dashboard'); const [foods, setFoods] = useState<SessionFood[]>([]); const [meals, setMeals] = useState<MealTime[]>(defaultMeals); const [targets, setTargets] = useState<Targets>(defaultTargets); const [nutrients, setNutrients] = useState<NutrientSummary[]>([]); const [searchMeal, setSearchMeal] = useState<string | null>(null); const [message, setMessage] = useState(''); const [newMeal, setNewMeal] = useState(false); const newMealRef = useRef<HTMLInputElement>(null);
+  useEffect(() => { getNutrientList().then(setNutrients).catch(() => setNutrients([])); }, []);
+  const addFood = (food: FoodResult, mealTime: string) => setFoods(current => [...current, { ...food, id: id(), amount: food.servingSize || 100, mealTime }]);
+  const implementAi = (rows: AiMealRow[]) => { const unmatched = new Set<string>(); const additions: SessionFood[] = []; for (const row of rows) { const meal = meals.find(item => item.label.toLowerCase() === row.meal_type.trim().toLowerCase()); if (!meal) { unmatched.add(row.meal_type); continue; } additions.push({ id: id(), sourceFoodId: row.matched_food_id, name: row.matched_food_name || row.requested_keyword, amount: row.suggested_grams || 100, servingSize: row.suggested_grams || 100, servingUnit: 'g', servingsPerContainer: 1, mealTime: meal.id, nutrients: { ...row.nutrients, energi: row.calories, protein: row.protein, 'lemak total': row.fat, 'karbohidrat total': row.carbohydrate } }); } if (additions.length) { setFoods(current => [...current, ...additions]); setSection('dashboard'); setMessage(`${additions.length} item AI ditambahkan`); } if (unmatched.size) setMessage(`Kategori AI tidak cocok: ${Array.from(unmatched).join(', ')}`); };
+  const reportRequest = useMemo(() => ({ foods: foods.map(food => ({ mealTime: food.mealTime, name: food.name, amount: food.amount, servingSize: food.servingSize, servingUnit: food.servingUnit, nutrients: food.nutrients })), mealTimes: meals, targets }), [foods, meals, targets]);
+  const saveProject = async () => { const path = await save({ defaultPath: 'Nutri.nutri', filters: [{ name: 'Nutri project', extensions: ['nutri'] }] }); if (path) await writeFile(path, new TextEncoder().encode(serializeProject({ foods, meals, targets }))); setMessage('Proyek berhasil disimpan'); };
+  const openProject = async () => { const path = await open({ multiple: false, filters: [{ name: 'Nutri project', extensions: ['nutri'] }] }); if (!path || Array.isArray(path)) return; const bytes = await readFile(path); const project = parseProject(new TextDecoder().decode(bytes)); setFoods(project.foods); setMeals(project.meals); setTargets(project.targets); setSection('dashboard'); setMessage('Proyek berhasil diimpor'); };
+  return <div className="app-shell"><Navigation section={section} onSection={setSection} onSave={saveProject} onOpen={openProject} onReport={() => setMessage('Gunakan tombol ekspor di header')} /><main className="main-content"><header className="top-bar"><span>Nutrition workspace</span><ReportActions request={reportRequest} onMessage={setMessage} /></header>{message && <div className="toast" onClick={() => setMessage('')}>{message}</div>}{section === 'dashboard' && <Dashboard foods={foods} meals={meals} targets={targets} onAddMeal={() => setNewMeal(true)} onAddFood={setSearchMeal} onRemoveFood={foodId => setFoods(current => current.filter(food => food.id !== foodId))} onAmount={(foodId, amount) => setFoods(current => current.map(food => food.id === foodId ? { ...food, amount } : food))} onRemoveMeal={mealId => { if (meals.length <= 1) return setMessage('Minimal harus ada 1 waktu makan'); const fallback = meals.find(meal => meal.id !== mealId); if (!fallback) return; setMeals(current => current.filter(meal => meal.id !== mealId)); setFoods(current => current.map(food => food.mealTime === mealId ? { ...food, mealTime: fallback.id } : food)); }} />}{section === 'recommendations' && <Recommendations nutrients={nutrients} onAdd={food => { addFood(food, meals[0].id); setSection('dashboard'); }} />}{section === 'tdee' && <TdeeCalculator onTargets={setTargets} />}{section === 'ai' && <AiMealPlanner meals={meals} targets={targets} onImplement={implementAi} />}<FoodSearch open={searchMeal !== null} onClose={() => setSearchMeal(null)} onSelect={food => addFood(food, searchMeal || meals[0].id)} />{newMeal && <div className="modal-backdrop"><div className="modal card"><h3>Tambah Waktu Makan</h3><input ref={newMealRef} placeholder="Contoh: Snack Sore" /><button className="primary full" onClick={() => { const label = newMealRef.current?.value.trim(); if (label) setMeals(current => [...current, { id: `MEAL_${id()}`, label }]); setNewMeal(false); }}>Tambah</button></div></div>}</main></div>;
 }
