@@ -1,7 +1,7 @@
 import { test, expect, type Page } from '@playwright/test';
 
 const appUrl = process.env.NUTRISURVEY_SMOKE_URL || 'http://127.0.0.1:4173';
-const mockedSecret = 'acceptance-secret';
+const mockedSecret = `acceptance-secret-${Date.now()}`;
 const foods = [{
   id: 1,
   name: 'Nasi Fixture',

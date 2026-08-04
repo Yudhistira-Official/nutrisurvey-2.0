@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { calculateTotals, calculateMacroTargets, implementAiRows, moveFoodToMeal, parseProject, serializeProject } from '../src/lib/types.ts';
 import { createCommandAdapters } from '../src/lib/commands.ts';
 import { classifyUiError } from '../src/lib/types.ts';
+import { createProjectFileAdapter } from '../src/lib/project.ts';
 import { readFileSync, mkdtempSync, writeFileSync, readFileSync as readProjectFile, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -27,6 +28,17 @@ test('versioned project round trip rejects unsupported versions', () => {
   assert.throws(() => parseProject(JSON.stringify({ version: 1, foods: [{ id: 'x' }], meals: project.meals, targets: project.targets })), /tidak valid/);
 });
 
+test('project file adapter uses dialog and filesystem boundaries for round trip', async () => {
+  let bytes;
+  const project = { foods: [], meals: [{ id: 'BREAKFAST', label: 'Makan Pagi' }], targets: { kcal: 0, carbs: 0, protein: 0, fat: 0 } };
+  const adapter = createProjectFileAdapter(
+    { save: async () => '/tmp/fixture.nutri', open: async () => '/tmp/fixture.nutri' },
+    { writeFile: async (_path, value) => { bytes = value; }, readFile: async () => bytes },
+  );
+  assert.equal(await adapter.save(project), true);
+  assert.deepEqual(await adapter.open(), { version: 1, ...project });
+});
+
 test('real .nutri file write, read, and re-import preserves project data', () => {
   const project = {
     foods: [{ id: 'fixture-1', name: 'Nasi 🍚', servingSize: 100, servingUnit: 'g', servingsPerContainer: 1, amount: 125, mealTime: 'BREAKFAST', nutrients: { energi: 130 } }],
@@ -43,14 +55,6 @@ test('real .nutri file write, read, and re-import preserves project data', () =>
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }
-});
-
-test('UI project flow uses production serialization and native filesystem abstraction', () => {
-  const page = readFileSync(new URL('../src/app/page.tsx', import.meta.url), 'utf8');
-  assert.match(page, /serializeProject\(\{ foods, meals, targets \}\)/);
-  assert.match(page, /parseProject\(new TextDecoder\(\)\.decode\(await readFile\(path\)\)\)/);
-  assert.match(page, /writeFile\(path, new TextEncoder\(\)\.encode\(/);
-  assert.match(page, /readFile\(path\)/);
 });
 
 test('search adapter forwards query and limit', async () => {

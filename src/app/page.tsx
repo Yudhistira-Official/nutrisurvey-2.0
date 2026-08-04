@@ -1,8 +1,8 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { open, save } from '@tauri-apps/plugin-dialog';
-import { readFile, writeFile } from '@tauri-apps/plugin-fs';
+import { open } from '@tauri-apps/plugin-dialog';
+import { readFile } from '@tauri-apps/plugin-fs';
 import Navigation, { type Section } from '../components/Navigation';
 import Dashboard from '../components/Dashboard';
 import FoodSearch from '../components/FoodSearch';
@@ -11,10 +11,10 @@ import TdeeCalculator from '../components/TdeeCalculator';
 import AiMealPlanner from '../components/AiMealPlanner';
 import ReportActions from '../components/ReportActions';
 import { exportToWord, getFoodStatus, getNutrientList, importCsv } from '../lib/commands';
-import { defaultMeals, defaultTargets, implementAiRows, moveFoodToMeal, parseProject, serializeProject, type AiMealRow, type FoodResult, type MealTime, type NutrientSummary, type SessionFood, type Targets } from '../lib/types';
+import { projectFile } from '../lib/project';
+import { defaultMeals, defaultTargets, implementAiRows, moveFoodToMeal, type AiMealRow, type FoodResult, type MealTime, type NutrientSummary, type SessionFood, type Targets } from '../lib/types';
 
 const id = () => `${Date.now()}-${Math.random()}`;
-const projectFilter = [{ name: 'Nutri project', extensions: ['nutri'] }];
 const csvFilter = [{ name: 'CSV database', extensions: ['csv'] }];
 
 export default function Home() {
@@ -42,17 +42,14 @@ export default function Home() {
 
   const saveProject = async () => {
     try {
-      const path = await save({ defaultPath: 'Nutri.nutri', filters: projectFilter });
-      if (!path) { setMessage('Penyimpanan dibatalkan'); return; }
-      await writeFile(path, new TextEncoder().encode(serializeProject({ foods, meals, targets })));
+      if (!await projectFile.save({ foods, meals, targets })) { setMessage('Penyimpanan dibatalkan'); return; }
       setMessage('Proyek berhasil disimpan');
     } catch (error) { notifyError(error, 'Gagal menyimpan proyek'); }
   };
   const openProject = async () => {
     try {
-      const path = await open({ multiple: false, filters: projectFilter });
-      if (!path || Array.isArray(path)) { setMessage('Pembukaan proyek dibatalkan'); return; }
-      const project = parseProject(new TextDecoder().decode(await readFile(path)));
+      const project = await projectFile.open();
+      if (!project) { setMessage('Pembukaan proyek dibatalkan'); return; }
       setFoods(project.foods); setMeals(project.meals); setTargets(project.targets); setSection('dashboard'); setMessage('Proyek berhasil diimpor');
     } catch (error) { notifyError(error, 'Gagal membuka proyek'); }
   };
