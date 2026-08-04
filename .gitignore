@@ -12,3 +12,8 @@ Backend/obj/
 Installer/
 Setup.exe
 .worktrees/
+node_modules/
+.next/
+out/
+src-tauri/target/
+*.tsbuildinfo

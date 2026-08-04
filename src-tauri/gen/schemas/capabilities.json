@@ -1,0 +1,1 @@
+{"default":{"identifier":"default","description":"Least-privilege permissions for the initial native scaffold.","local":true,"windows":["main"],"permissions":["core:default","dialog:default","fs:allow-appdata-read","fs:allow-resource-read"]}}
