@@ -15,6 +15,8 @@ const foods = [{
 
 async function installMockBridge(page: Page) {
   await page.addInitScript(({ fixtureFoods, secret }) => {
+    type InvokePayload = { request?: unknown; bytes?: number[]; project?: unknown } | Uint8Array;
+    type InvokeOptions = { headers?: Record<string, string> };
     const state = {
       calls: [] as Array<{ command: string; payloadKeys: string[] }>,
       serializedCalls: [] as string[],
@@ -24,7 +26,7 @@ async function installMockBridge(page: Page) {
       importedBytes: [] as number[],
     };
     const bridge = {
-      invoke: async (command: string, payload?: { request?: unknown; bytes?: number[] } | Uint8Array, options?: { headers?: Record<string, string> }) => {
+      invoke: async (command: string, payload?: InvokePayload, options?: InvokeOptions) => {
         const rawInvoke = JSON.stringify({ command, payload, options });
         if (rawInvoke.includes(secret)) state.rawSecretSeenOnlyInMemory = true;
         state.calls.push({ command, payloadKeys: payload && typeof payload === 'object' ? Object.keys(payload) : [] });
@@ -70,7 +72,8 @@ async function installMockBridge(page: Page) {
           savedPath: 'acceptance-report.rtf',
         };
         if (command === 'project_save') {
-          state.projectBytes = Array.from(new TextEncoder().encode(JSON.stringify(payload?.project)));
+          const objectPayload = payload instanceof Uint8Array ? undefined : payload;
+          state.projectBytes = Array.from(new TextEncoder().encode(JSON.stringify(objectPayload?.project)));
           return true;
         }
         if (command === 'project_open') {

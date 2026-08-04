@@ -170,6 +170,28 @@ fn ai_request_debug_redacts_api_key() {
 }
 
 #[test]
+fn production_resolution_returns_hostname_url_and_pinned_safe_socket() {
+    let (url, socket) = ai::resolve_and_pin("https://router.test/api", || {
+        Ok::<Vec<std::net::IpAddr>, std::io::Error>(vec!["93.184.216.34".parse().unwrap()])
+    })
+    .unwrap();
+    assert_eq!(url.host_str(), Some("router.test"));
+    assert_eq!(
+        socket.ip(),
+        "93.184.216.34".parse::<std::net::IpAddr>().unwrap()
+    );
+    assert_eq!(socket.port(), 443);
+}
+
+#[test]
+fn production_resolution_rejects_private_socket_before_client_creation() {
+    let result = ai::resolve_and_pin("https://router.test", || {
+        Ok::<Vec<std::net::IpAddr>, std::io::Error>(vec!["127.0.0.1".parse().unwrap()])
+    });
+    assert!(result.is_err());
+}
+
+#[test]
 fn hostname_resolution_rejects_any_private_result_before_request() {
     let safe = ai::endpoint_with_resolver("https://router.test/api", "chat/completions", || {
         Ok::<Vec<std::net::IpAddr>, std::io::Error>(vec!["93.184.216.34".parse().unwrap()])

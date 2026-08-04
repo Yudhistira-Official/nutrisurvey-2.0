@@ -21,15 +21,25 @@ pub async fn copy_and_import(
         .and_then(|name| name.to_str())
         .unwrap_or("import.csv");
     let destination = storage.app_data_dir().join("imports").join(safe_name);
+    let suffix = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_nanos())
+        .unwrap_or_default();
+    let temporary = destination.with_file_name(format!(".{safe_name}.{suffix}.tmp"));
     tokio::fs::create_dir_all(destination.parent().unwrap()).await?;
-    tokio::fs::write(&destination, bytes).await?;
-    match import_csv(storage, bytes, safe_name).await {
-        Ok(count) => Ok(count),
+    tokio::fs::write(&temporary, bytes).await?;
+    let count = match import_csv(storage, bytes, safe_name).await {
+        Ok(count) => count,
         Err(error) => {
-            let _ = tokio::fs::remove_file(destination).await;
-            Err(error)
+            let _ = tokio::fs::remove_file(&temporary).await;
+            return Err(error);
         }
+    };
+    if tokio::fs::try_exists(&destination).await? {
+        tokio::fs::remove_file(&destination).await?;
     }
+    tokio::fs::rename(temporary, destination).await?;
+    Ok(count)
 }
 
 pub async fn import_csvs(storage: &Storage, resources: &[(&str, &[u8])]) -> Result<u64, AppError> {

@@ -4,10 +4,10 @@ use crate::{
     models::{AiRequest, MappedMealItem},
     storage::Storage,
 };
-use reqwest::{Client, Url};
+use reqwest::{redirect::Policy, Client, Url};
 use serde::Serialize;
 use serde_json::Value;
-use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::time::Duration;
 
 mod anthropic;
@@ -22,12 +22,18 @@ pub async fn generate_menu(
     storage: &Storage,
     request: AiRequest,
 ) -> Result<Vec<MappedMealItem>, AppError> {
+    validate_request(&request)?;
+    let (base_url, socket) =
+        resolve_and_pin(&request.base_url, || resolve_host(&request.base_url))?;
+    let host = base_url
+        .host_str()
+        .ok_or_else(|| AppError::Validation("AI base URL is invalid".into()))?;
     let client = Client::builder()
         .timeout(REQUEST_TIMEOUT)
+        .redirect(Policy::none())
+        .resolve(host, socket)
         .build()
         .map_err(|_| AppError::Ai("unable to configure AI client".into()))?;
-    validate_request(&request)?;
-    secure_endpoint(&request.base_url, "")?;
     generate_menu_with_client(storage, request, &client).await
 }
 
@@ -116,8 +122,40 @@ pub fn endpoint_for_client(base_url: &str, suffix: &str) -> Result<Url, AppError
     join_endpoint(endpoint_shape(base_url)?, suffix)
 }
 
-fn secure_endpoint(base_url: &str, suffix: &str) -> Result<Url, AppError> {
-    endpoint(base_url, suffix)
+fn resolve_host(base_url: &str) -> Result<Vec<IpAddr>, std::io::Error> {
+    let parsed = Url::parse(base_url.trim())
+        .map_err(|_| std::io::Error::new(std::io::ErrorKind::InvalidInput, "invalid URL"))?;
+    let host = parsed
+        .host_str()
+        .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::InvalidInput, "missing host"))?
+        .to_owned();
+    let port = parsed
+        .port_or_known_default()
+        .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::InvalidInput, "missing port"))?;
+    std::net::ToSocketAddrs::to_socket_addrs(&(host.as_str(), port))
+        .map(|addresses| addresses.map(|address| address.ip()).collect())
+}
+
+pub fn resolve_and_pin<F, E>(base_url: &str, resolver: F) -> Result<(Url, SocketAddr), AppError>
+where
+    F: FnOnce() -> Result<Vec<IpAddr>, E>,
+{
+    let url = endpoint_shape(base_url)?;
+    let port = url
+        .port_or_known_default()
+        .ok_or_else(|| AppError::Validation("AI base URL is invalid".into()))?;
+    let addresses =
+        resolver().map_err(|_| AppError::Validation("AI base URL could not be resolved".into()))?;
+    if addresses.iter().any(is_private_ip) {
+        return Err(AppError::Validation(
+            "AI base URL resolves to a private address".into(),
+        ));
+    }
+    let address = addresses
+        .into_iter()
+        .next()
+        .ok_or_else(|| AppError::Validation("AI base URL could not be resolved".into()))?;
+    Ok((url, SocketAddr::new(address, port)))
 }
 
 pub fn endpoint(base_url: &str, suffix: &str) -> Result<Url, AppError> {

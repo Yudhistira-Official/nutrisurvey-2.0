@@ -283,6 +283,26 @@ async fn bundled_fatsecret_header_and_row_imports_with_canonical_aliases() {
 }
 
 #[tokio::test]
+async fn failed_import_preserves_existing_same_basename_copy() {
+    let (storage, path) = storage().await;
+    let source = "selected.csv";
+    let destination = storage.app_data_dir().join("imports").join(source);
+    tokio::fs::create_dir_all(destination.parent().unwrap())
+        .await
+        .unwrap();
+    tokio::fs::write(&destination, b"previous valid content")
+        .await
+        .unwrap();
+    let result = import::copy_and_import(&storage, b"not a valid csv\n", source).await;
+    assert!(result.is_err());
+    assert_eq!(
+        tokio::fs::read(destination).await.unwrap(),
+        b"previous valid content"
+    );
+    cleanup(path).await;
+}
+
+#[tokio::test]
 async fn import_copy_helper_persists_source_bytes_before_import() {
     let (storage, path) = storage().await;
     let source = "selected.csv";

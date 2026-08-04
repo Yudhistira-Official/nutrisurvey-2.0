@@ -9,9 +9,9 @@ export default defineConfig({
     trace: 'on-first-retry',
   },
   webServer: {
-    command: 'npm run build && python3 -m http.server 4173 --directory out',
+    command: 'rm -rf out && npm run build && test -s out/index.html && python3 -m http.server 4173 --directory out',
     url: 'http://127.0.0.1:4173',
-    reuseExistingServer: true,
+    reuseExistingServer: false,
   },
   projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
 });
