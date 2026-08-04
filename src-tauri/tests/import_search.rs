@@ -167,6 +167,38 @@ async fn failed_import_rolls_back_food_nutrients_and_readiness_state() {
 }
 
 #[tokio::test]
+async fn food_status_is_not_ready_before_seed_completion() {
+    let (storage, path) = storage().await;
+    let status = foods::status(&storage).await.unwrap();
+    assert_eq!(status.food_count, 0);
+    assert!(!status.is_ready);
+    cleanup(path).await;
+}
+
+#[tokio::test]
+async fn food_status_is_ready_after_empty_seed_completion() {
+    let (storage, path) = storage().await;
+    import::seed_csvs(&storage, &[]).await.unwrap();
+    let status = foods::status(&storage).await.unwrap();
+    assert_eq!(status.food_count, 0);
+    assert!(status.is_ready);
+    cleanup(path).await;
+}
+
+#[tokio::test]
+async fn food_status_stays_not_ready_for_manually_populated_database() {
+    let (storage, path) = storage().await;
+    sqlx::query("INSERT INTO foods (name, normalized_name) VALUES ('Manual food', 'manual food')")
+        .execute(storage.pool())
+        .await
+        .unwrap();
+    let status = foods::status(&storage).await.unwrap();
+    assert_eq!(status.food_count, 1);
+    assert!(!status.is_ready);
+    cleanup(path).await;
+}
+
+#[tokio::test]
 async fn seed_state_is_explicit_and_empty_resources_complete_deterministically() {
     let (storage, path) = storage().await;
     assert!(!import::seed_is_complete(&storage).await.unwrap());

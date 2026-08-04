@@ -50,3 +50,19 @@ Verification:
 - `cargo test --manifest-path src-tauri/Cargo.toml --test import_search`: 14 passed.
 - `cargo test --manifest-path src-tauri/Cargo.toml`: 21 passed, 0 failed.
 - fmt and clippy with `-D warnings`: passed.
+
+## Task 3 readiness append
+
+Status: complete.
+
+- `foods::status` now derives `is_ready` exclusively from explicit `app_state.seed_complete`; `food_count` no longer controls readiness.
+- Added coverage for fresh databases, empty completed seeds, and manually populated databases.
+
+Verification:
+- `cargo test --manifest-path src-tauri/Cargo.toml --test import_search`: 17 passed, 0 failed.
+- `cargo test --manifest-path src-tauri/Cargo.toml`: 7 unit tests and 17 integration tests passed, 0 failed.
+- `cargo fmt --manifest-path src-tauri/Cargo.toml`: passed.
+- `cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets --all-features -- -D warnings`: passed.
+
+Concerns:
+- Readiness remains false for databases manually populated outside transactional seed completion; this is intentional and prevents food row count from impersonating seed readiness.

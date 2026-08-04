@@ -70,7 +70,7 @@ pub async fn status(storage: &Storage) -> Result<FoodStatus, AppError> {
         .await?;
     Ok(FoodStatus {
         food_count,
-        is_ready: food_count > 0,
+        is_ready: crate::import::seed_is_complete(storage).await?,
     })
 }
 
