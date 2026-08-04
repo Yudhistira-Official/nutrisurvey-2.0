@@ -88,3 +88,7 @@ export function exportToWord(request: ExportRequest): Promise<ExportResult> {
 export function importCsv(bytes: number[], sourceName: string): Promise<number> {
   return invokeCommand<number>('import_food_csv', { bytes, sourceName });
 }
+
+export function importCsvFromPath(path: string): Promise<number> {
+  return invokeCommand<number>('import_csv_from_path', { path });
+}

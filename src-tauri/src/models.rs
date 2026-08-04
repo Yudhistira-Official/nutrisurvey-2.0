@@ -119,6 +119,7 @@ pub struct TdeeRequest {
     pub activity_factor: f64,
     pub injury_factor: f64,
     pub is_manual_factors: bool,
+    pub bmi_standard: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -127,6 +128,11 @@ pub struct TdeeResponse {
     pub basal_metabolic_rate: f64,
     pub total_daily_energy_expenditure: f64,
     pub formula_used: String,
+    pub bmi: f64,
+    pub nutrition_classification: String,
+    pub ideal_weight: f64,
+    pub adjusted_weight: f64,
+    pub reference_weight: f64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

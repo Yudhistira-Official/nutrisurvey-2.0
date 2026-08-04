@@ -133,6 +133,7 @@ async fn native_acceptance_covers_readiness_import_search_recommendations_and_td
         activity_factor: 1.2,
         injury_factor: 1.0,
         is_manual_factors: false,
+        bmi_standard: "asia_pacific".into(),
     })
     .unwrap();
     assert_eq!(tdee.total_daily_energy_expenditure, 2035.2);

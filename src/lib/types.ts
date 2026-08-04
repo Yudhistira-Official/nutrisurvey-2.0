@@ -30,11 +30,17 @@ export type TdeeRequest = {
   activityFactor: number;
   injuryFactor: number;
   isManualFactors: boolean;
+  bmiStandard: 'asia_pacific' | 'who';
 };
 export type TdeeResponse = {
   basalMetabolicRate: number;
   totalDailyEnergyExpenditure: number;
   formulaUsed: string;
+  bmi: number;
+  nutritionClassification: string;
+  idealWeight: number;
+  adjustedWeight: number;
+  referenceWeight: number;
 };
 export type AiConfig = { provider: string; model: string; apiKey: string; baseUrl: string };
 export type AiMealRow = {

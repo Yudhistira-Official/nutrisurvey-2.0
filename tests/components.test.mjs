@@ -8,6 +8,37 @@ import { readFileSync, mkdtempSync, writeFileSync, readFileSync as readProjectFi
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
+test('tdee calculator shows Indonesian gender labels', () => {
+  const source = readFileSync(new URL('../src/components/TdeeCalculator.tsx', import.meta.url), 'utf8');
+  assert.match(source, /value="Male">Laki-laki/);
+  assert.match(source, /value="Female">Perempuan/);
+});
+
+test('tdee calculator uses responsive paired panels and AF IF labels', () => {
+  const source = readFileSync(new URL('../src/components/TdeeCalculator.tsx', import.meta.url), 'utf8');
+  assert.match(source, /tdee-panels/);
+  assert.match(source, /Faktor Aktivitas \(AF\)/);
+  assert.match(source, /Faktor Cedera \(IF\)/);
+  assert.match(source, /Asia Pasifik/);
+  assert.match(source, /WHO Internasional/);
+  assert.match(source, /nutrition-standard/);
+  assert.match(source, /diagnosis-summary/);
+  assert.match(source, /Rawat Inap/);
+  assert.match(source, /Pneumonia/);
+  assert.match(source, /Input Manual/);
+  assert.match(source, /isManualFactors \? <input/);
+});
+
+test('toast notifications auto-dismiss after three seconds with exit animation', () => {
+  const source = readFileSync(new URL('../src/app/page.tsx', import.meta.url), 'utf8');
+  const css = readFileSync(new URL('../src/styles/globals.css', import.meta.url), 'utf8');
+  assert.match(source, /toastVisible/);
+  assert.match(source, /3000/);
+  assert.match(source, /toastVisible \? 'toast-visible' : 'toast-exiting'/);
+  assert.match(css, /@keyframes toastEnter/);
+  assert.match(css, /@keyframes toastExit/);
+});
+
 test('dashboard totals preserve serving scaling and targets', () => {
   const foods = [{
     id: 'food-1', name: 'Rice', servingSize: 100, servingUnit: 'g', servingsPerContainer: 1,
@@ -56,6 +87,16 @@ test('real .nutri file write, read, and re-import preserves project data', () =>
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }
+});
+
+test('food search uses selected row and explicit add action', () => {
+  const source = readFileSync(new URL('../src/components/FoodSearch.tsx', import.meta.url), 'utf8');
+  assert.match(source, /selectedFoodId/);
+  assert.match(source, /className={`search-result-row/);
+  assert.match(source, /\+ Tambah/);
+  assert.match(source, /food-search-inputs/);
+  assert.match(source, /selectedFood\) add\(selectedFood\)/);
+  assert.equal((source.match(/className="gram-input"/g) || []).length, 1);
 });
 
 test('search adapter forwards query and limit', async () => {

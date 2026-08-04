@@ -54,22 +54,24 @@ async fn fetch_foods(
     limit: i64,
     order_by_name: bool,
 ) -> Result<Vec<FoodResult>, AppError> {
-    let inner_order = if order_by_name { " ORDER BY name" } else { "" };
-    let outer_order = if order_by_name {
-        " ORDER BY f.name"
+    let inner_order = if order_by_name {
+        " ORDER BY CASE WHEN normalized_name = ? THEN 0 WHEN normalized_name LIKE ? || '%' THEN 1 ELSE 2 END, name"
     } else {
         ""
     };
+    let outer_order = "";
     let sql = format!(
         "SELECT f.id, f.name, f.brand, f.category, f.serving_size, f.serving_unit, f.servings_per_container, n.name AS nutrient_name, fn.amount FROM (SELECT * FROM foods WHERE (? = '' OR normalized_name LIKE '%' || ? || '%'){} LIMIT ?) f LEFT JOIN food_nutrients fn ON fn.food_id = f.id LEFT JOIN nutrients n ON n.id = fn.nutrient_id{}",
         inner_order, outer_order
     );
-    let rows = sqlx::query_as::<_, FoodSearchRow>(&sql)
-        .bind(query.trim().to_lowercase())
-        .bind(query.trim().to_lowercase())
-        .bind(limit)
-        .fetch_all(storage.pool())
-        .await?;
+    let normalized_query = query.trim().to_lowercase();
+    let mut statement = sqlx::query_as::<_, FoodSearchRow>(&sql)
+        .bind(&normalized_query)
+        .bind(&normalized_query);
+    if order_by_name {
+        statement = statement.bind(&normalized_query).bind(&normalized_query);
+    }
+    let rows = statement.bind(limit).fetch_all(storage.pool()).await?;
     let mut result = Vec::new();
     for row in rows {
         if let Some(food) = result
@@ -131,7 +133,7 @@ pub async fn recommend(
                 })
         });
     }
-    results.truncate(10);
+    results.truncate(20);
     Ok(results)
 }
 

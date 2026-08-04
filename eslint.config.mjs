@@ -3,7 +3,7 @@ import nextConfig from 'eslint-config-next';
 
 export default defineConfig([
   {
-    ignores: ['.next/**', 'out/**', 'src-tauri/target/**', 'node_modules/**'],
+    ignores: ['.next/**', 'out/**', 'src-tauri/target/**', 'node_modules/**', '.worktrees/**', '**/target/**'],
   },
   ...nextConfig,
   {

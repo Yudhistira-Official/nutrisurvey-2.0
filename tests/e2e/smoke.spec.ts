@@ -45,6 +45,11 @@ async function installMockBridge(page: Page) {
           basalMetabolicRate: 1696,
           totalDailyEnergyExpenditure: 2035.2,
           formulaUsed: 'Harris-Benedict (Clinical Edition)',
+          bmi: 22.86,
+          nutritionClassification: 'Normal',
+          idealWeight: 67.5,
+          adjustedWeight: 68.13,
+          referenceWeight: 70,
         };
         if (command === 'import_food_csv') {
           state.importedBytes = payload && !(payload instanceof Uint8Array) ? payload.bytes || [] : [];

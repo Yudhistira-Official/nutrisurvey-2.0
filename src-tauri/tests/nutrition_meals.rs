@@ -21,6 +21,43 @@ async fn storage() -> nutrisurvey_lib::storage::Storage {
 }
 
 #[test]
+fn tdee_uses_clinical_reference_weight_for_obesity() {
+    let response = nutrition::calculate_tdee(nutrisurvey_lib::models::TdeeRequest {
+        weight_kg: 110.0,
+        height_cm: 170.0,
+        age: 30,
+        gender: "Male".into(),
+        activity_factor: 1.2,
+        injury_factor: 1.25,
+        is_manual_factors: false,
+        bmi_standard: "asia_pacific".into(),
+    })
+    .unwrap();
+    assert_eq!(response.bmi, 38.06);
+    assert_eq!(response.nutrition_classification, "Obes morbid");
+    assert_eq!(response.ideal_weight, 63.0);
+    assert_eq!(response.adjusted_weight, 74.75);
+    assert_eq!(response.reference_weight, 74.75);
+}
+
+#[test]
+fn tdee_uses_actual_weight_for_normal_bmi() {
+    let response = nutrition::calculate_tdee(nutrisurvey_lib::models::TdeeRequest {
+        weight_kg: 70.0,
+        height_cm: 175.0,
+        age: 30,
+        gender: "Male".into(),
+        activity_factor: 1.2,
+        injury_factor: 0.9,
+        is_manual_factors: false,
+        bmi_standard: "asia_pacific".into(),
+    })
+    .unwrap();
+    assert_eq!(response.nutrition_classification, "Normal");
+    assert_eq!(response.reference_weight, 70.0);
+}
+
+#[test]
 fn tdee_uses_male_formula_and_factors() {
     let response = nutrition::calculate_tdee(nutrisurvey_lib::models::TdeeRequest {
         weight_kg: 70.0,
@@ -30,6 +67,7 @@ fn tdee_uses_male_formula_and_factors() {
         activity_factor: 1.2,
         injury_factor: 0.9,
         is_manual_factors: false,
+        bmi_standard: "asia_pacific".into(),
     })
     .unwrap();
     assert_eq!(response.basal_metabolic_rate, 1696.0);
@@ -46,6 +84,7 @@ fn tdee_uses_female_other_formula() {
         activity_factor: 1.5,
         injury_factor: 1.1,
         is_manual_factors: false,
+        bmi_standard: "asia_pacific".into(),
     })
     .unwrap();
     assert_eq!(response.basal_metabolic_rate, 1410.5);
@@ -62,6 +101,7 @@ fn tdee_rejects_invalid_numeric_input() {
         activity_factor: 1.5,
         injury_factor: 1.1,
         is_manual_factors: false,
+        bmi_standard: "asia_pacific".into(),
     });
     assert!(result.is_err());
 }
@@ -77,6 +117,7 @@ fn tdee_rejects_non_positive_factors() {
             activity_factor: factor,
             injury_factor: 1.0,
             is_manual_factors: false,
+            bmi_standard: "asia_pacific".into(),
         });
         let injury = nutrition::calculate_tdee(nutrisurvey_lib::models::TdeeRequest {
             weight_kg: 70.0,
@@ -86,6 +127,7 @@ fn tdee_rejects_non_positive_factors() {
             activity_factor: 1.0,
             injury_factor: factor,
             is_manual_factors: false,
+            bmi_standard: "asia_pacific".into(),
         });
         assert!(activity.is_err());
         assert!(injury.is_err());
@@ -150,7 +192,7 @@ async fn recommendations_apply_combined_operators_and_cap() {
     )
     .await
     .unwrap();
-    assert_eq!(result.len(), 10);
+    assert_eq!(result.len(), 12);
 }
 
 #[tokio::test]
@@ -199,6 +241,7 @@ fn command_registration_exposes_tdee_command_contract() {
         activity_factor: 1.0,
         injury_factor: 1.0,
         is_manual_factors: false,
+        bmi_standard: "asia_pacific".into(),
     })
     .unwrap();
     assert_eq!(result.formula_used, "Harris-Benedict (Clinical Edition)");

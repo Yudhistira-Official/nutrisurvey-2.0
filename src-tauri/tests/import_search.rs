@@ -81,6 +81,75 @@ async fn imports_scraper_format_updates_duplicate_food_and_creates_nutrients() {
 }
 
 #[tokio::test]
+async fn synchronize_sources_skips_unchanged_and_replaces_changed_sources() {
+    let (storage, path) = storage().await;
+    let first = [("foods.csv", b"Nama Makanan\nRice\n".as_slice())];
+    assert_eq!(
+        import::synchronize_sources(&storage, &first).await.unwrap(),
+        1
+    );
+    assert_eq!(
+        import::synchronize_sources(&storage, &first).await.unwrap(),
+        0
+    );
+    assert_eq!(foods::search(&storage, "rice", 20).await.unwrap().len(), 1);
+
+    let changed = [("foods.csv", b"Nama Makanan\nApple\n".as_slice())];
+    assert_eq!(
+        import::synchronize_sources(&storage, &changed)
+            .await
+            .unwrap(),
+        1
+    );
+    assert!(foods::search(&storage, "rice", 20)
+        .await
+        .unwrap()
+        .is_empty());
+    assert_eq!(foods::search(&storage, "apple", 20).await.unwrap().len(), 1);
+    cleanup(path).await;
+}
+
+#[tokio::test]
+async fn synchronize_sources_rolls_back_database_and_manifest_on_import_error() {
+    let (storage, path) = storage().await;
+    let valid = [("foods.csv", b"Nama Makanan\nRice\n".as_slice())];
+    import::synchronize_sources(&storage, &valid).await.unwrap();
+
+    let invalid = [("foods.csv", b"Category\nBroken\n".as_slice())];
+    assert!(import::synchronize_sources(&storage, &invalid)
+        .await
+        .is_err());
+    assert_eq!(foods::search(&storage, "rice", 20).await.unwrap().len(), 1);
+    assert!(foods::search(&storage, "broken", 20)
+        .await
+        .unwrap()
+        .is_empty());
+    assert_eq!(
+        import::synchronize_sources(&storage, &valid).await.unwrap(),
+        0
+    );
+    cleanup(path).await;
+}
+
+#[tokio::test]
+async fn search_prioritizes_exact_prefix_then_contains_matches() {
+    let (storage, path) = storage().await;
+    let csv = "Nama Makanan\nRice Cake\nRice\nBrown Rice\nRice Pudding\n";
+    import::import_csv(&storage, csv.as_bytes(), "ranking.csv")
+        .await
+        .unwrap();
+    let result = foods::search(&storage, "rice", 20).await.unwrap();
+    assert_eq!(
+        result
+            .iter()
+            .map(|food| food.name.as_str())
+            .collect::<Vec<_>>(),
+        vec!["Rice", "Rice Cake", "Rice Pudding", "Brown Rice"]
+    );
+    cleanup(path).await;
+}
+
+#[tokio::test]
 async fn search_respects_empty_query_and_twenty_result_cap() {
     let (storage, path) = storage().await;
     let mut csv = String::from("Nama Makanan\n");

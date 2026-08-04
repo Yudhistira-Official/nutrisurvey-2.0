@@ -17,3 +17,4 @@ node_modules/
 out/
 src-tauri/target/
 *.tsbuildinfo
+.opencode/

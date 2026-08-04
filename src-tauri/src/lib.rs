@@ -72,6 +72,20 @@ pub mod commands {
     }
 
     #[tauri::command]
+    pub async fn import_csv_from_path(
+        state: State<'_, AppState>,
+        path: String,
+    ) -> Result<u64, error::AppError> {
+        let bytes = std::fs::read(&path).map_err(|error| error::AppError::Io(error.to_string()))?;
+        let source_name = std::path::Path::new(&path)
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("import.csv")
+            .to_owned();
+        import::copy_and_import(&state.storage, &bytes, &source_name).await
+    }
+
+    #[tauri::command]
     pub async fn generate_ai_menu(
         state: State<'_, AppState>,
         request: models::AiRequest,
@@ -80,24 +94,29 @@ pub mod commands {
     }
 
     #[tauri::command]
-    pub fn project_save(
+    pub async fn project_save(
         app: AppHandle,
         project: project::ProjectFile,
     ) -> Result<bool, error::AppError> {
         #[cfg(desktop)]
         {
             use tauri_plugin_dialog::DialogExt;
-            let selected = app
-                .dialog()
+            let (tx, rx) = tokio::sync::oneshot::channel();
+            app.dialog()
                 .file()
                 .set_file_name("Nutri.nutri")
                 .add_filter("Nutri project", &["nutri"])
-                .blocking_save_file();
+                .save_file(move |selected| {
+                    let _ = tx.send(selected);
+                });
+            let selected = rx
+                .await
+                .map_err(|_| error::AppError::Io("dialog task dropped".into()))?;
             let Some(path) = export::resolve_selected_path(selected.map(|path| path.into_path()))?
             else {
                 return Ok(false);
             };
-            tauri::async_runtime::block_on(project::save(&path, &project))?;
+            project::save(&path, &project).await?;
             Ok(true)
         }
         #[cfg(mobile)]
@@ -108,20 +127,27 @@ pub mod commands {
     }
 
     #[tauri::command]
-    pub fn project_open(app: AppHandle) -> Result<Option<project::ProjectFile>, error::AppError> {
+    pub async fn project_open(
+        app: AppHandle,
+    ) -> Result<Option<project::ProjectFile>, error::AppError> {
         #[cfg(desktop)]
         {
             use tauri_plugin_dialog::DialogExt;
-            let selected = app
-                .dialog()
+            let (tx, rx) = tokio::sync::oneshot::channel();
+            app.dialog()
                 .file()
                 .add_filter("Nutri project", &["nutri"])
-                .blocking_pick_file();
+                .pick_file(move |selected| {
+                    let _ = tx.send(selected);
+                });
+            let selected = rx
+                .await
+                .map_err(|_| error::AppError::Io("dialog task dropped".into()))?;
             let Some(path) = export::resolve_selected_path(selected.map(|path| path.into_path()))?
             else {
                 return Ok(None);
             };
-            Ok(Some(tauri::async_runtime::block_on(project::load(&path))?))
+            Ok(Some(project::load(&path).await?))
         }
         #[cfg(mobile)]
         {
@@ -162,7 +188,7 @@ pub mod commands {
     }
 
     #[tauri::command]
-    pub fn export_word(
+    pub async fn export_word(
         app: AppHandle,
         request: export::ExportRequest,
     ) -> Result<export::ExportResult, error::AppError> {
@@ -170,22 +196,26 @@ pub mod commands {
         {
             use tauri_plugin_dialog::DialogExt;
 
-            export_word_with_handler(request, |initial: export::ExportResult| {
-                let selected = app
-                    .dialog()
-                    .file()
-                    .set_file_name(&initial.filename)
-                    .add_filter("Rich Text Format", &["rtf"])
-                    .blocking_save_file();
-                let selected =
-                    export::resolve_selected_path(selected.map(|path| path.into_path()))?;
-                let path = export::validate_selected_path(selected.as_deref())?;
-                std::fs::write(path, &initial.bytes)?;
-                Ok(export::ExportResult {
-                    delivery: export::ExportDelivery::Saved,
-                    saved_path: Some(path.to_string_lossy().into_owned()),
-                    ..initial
-                })
+            let initial = export_word_with_handler(request, Ok)?;
+            let (tx, rx) = tokio::sync::oneshot::channel();
+            let filename = initial.filename.clone();
+            app.dialog()
+                .file()
+                .set_file_name(&filename)
+                .add_filter("Rich Text Format", &["rtf"])
+                .save_file(move |selected| {
+                    let _ = tx.send(selected);
+                });
+            let selected = rx
+                .await
+                .map_err(|_| error::AppError::Io("dialog task dropped".into()))?;
+            let selected = export::resolve_selected_path(selected.map(|path| path.into_path()))?;
+            let path = export::validate_selected_path(selected.as_deref())?;
+            std::fs::write(path, &initial.bytes)?;
+            Ok(export::ExportResult {
+                delivery: export::ExportDelivery::Saved,
+                saved_path: Some(path.to_string_lossy().into_owned()),
+                ..initial
             })
         }
 
@@ -219,6 +249,7 @@ pub fn run() {
             commands::food_recommendations,
             commands::nutrient_list,
             commands::import_food_csv,
+            commands::import_csv_from_path,
             commands::generate_ai_menu,
             commands::project_save,
             commands::project_open,
@@ -229,21 +260,41 @@ pub fn run() {
 }
 
 pub async fn seed_configured_resources(storage: &storage::Storage) -> Result<u64, error::AppError> {
-    if import::seed_is_complete(storage).await? {
-        return Ok(0);
-    }
     let resource_dir = storage.resource_dir();
     let mut paths = Vec::new();
-    if resource_dir.is_dir() {
-        let mut entries = tokio::fs::read_dir(resource_dir).await?;
-        while let Some(entry) = entries.next_entry().await? {
-            let path = entry.path();
-            if path.extension().and_then(|extension| extension.to_str()) == Some("csv") {
-                paths.push(path);
+    for dir in [
+        Some(resource_dir.to_path_buf()),
+        resource_dir.parent().map(|p| p.join("DatabaseMakanan")),
+    ]
+    .iter()
+    .flatten()
+    {
+        if dir.is_dir() {
+            let mut entries = tokio::fs::read_dir(dir).await?;
+            while let Some(entry) = entries.next_entry().await? {
+                let path = entry.path();
+                if path.extension().and_then(|extension| extension.to_str()) == Some("csv") {
+                    paths.push(path);
+                }
+            }
+        }
+    }
+    if paths.is_empty() {
+        let project_db = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("..")
+            .join("DatabaseMakanan");
+        if project_db.is_dir() {
+            let mut entries = tokio::fs::read_dir(project_db).await?;
+            while let Some(entry) = entries.next_entry().await? {
+                let path = entry.path();
+                if path.extension().and_then(|extension| extension.to_str()) == Some("csv") {
+                    paths.push(path);
+                }
             }
         }
     }
     paths.sort();
+    paths.dedup();
     let mut resources = Vec::new();
     for path in paths {
         let name = path
@@ -257,7 +308,7 @@ pub async fn seed_configured_resources(storage: &storage::Storage) -> Result<u64
         .iter()
         .map(|(name, bytes)| (name.as_str(), bytes.as_slice()))
         .collect::<Vec<_>>();
-    import::seed_csvs(storage, &references).await
+    import::synchronize_sources(storage, &references).await
 }
 
 #[cfg(test)]
@@ -351,12 +402,18 @@ mod tests {
                 activity_factor: 1.2,
                 injury_factor: 1.0,
                 is_manual_factors: false,
+                bmi_standard: "asia_pacific".into(),
             })
             .unwrap(),
             serde_json::to_value(crate::models::TdeeResponse {
                 basal_metabolic_rate: 1600.0,
                 total_daily_energy_expenditure: 1920.0,
                 formula_used: "Mifflin".into(),
+                bmi: 22.86,
+                nutrition_classification: "Normal".into(),
+                ideal_weight: 67.5,
+                adjusted_weight: 68.13,
+                reference_weight: 70.0,
             })
             .unwrap(),
             serde_json::to_value(crate::models::RecommendationFilter {
@@ -419,11 +476,17 @@ mod tests {
                 "activityFactor",
                 "injuryFactor",
                 "isManualFactors",
+                "bmiStandard",
             ],
             vec![
                 "basalMetabolicRate",
                 "totalDailyEnergyExpenditure",
                 "formulaUsed",
+                "bmi",
+                "nutritionClassification",
+                "idealWeight",
+                "adjustedWeight",
+                "referenceWeight",
             ],
             vec!["nutrient", "operator", "value"],
             vec!["provider", "model", "apiKey", "baseUrl"],

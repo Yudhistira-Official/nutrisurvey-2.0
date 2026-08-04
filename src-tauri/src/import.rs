@@ -1,5 +1,6 @@
 use crate::{error::AppError, storage::Storage};
 use csv::ReaderBuilder;
+use sha2::{Digest, Sha256};
 use sqlx::{Sqlite, Transaction};
 use std::collections::HashMap;
 
@@ -56,6 +57,61 @@ pub async fn seed_csvs(storage: &Storage, resources: &[(&str, &[u8])]) -> Result
         .execute(&mut *transaction).await?;
     transaction.commit().await?;
     Ok(total)
+}
+
+pub async fn synchronize_sources(
+    storage: &Storage,
+    resources: &[(&str, &[u8])],
+) -> Result<u64, AppError> {
+    if resources.is_empty() {
+        return Ok(0);
+    }
+    let mut ordered = resources.iter().collect::<Vec<_>>();
+    ordered.sort_by(|left, right| left.0.cmp(right.0));
+    let manifest = source_manifest(&ordered);
+    let mut transaction = storage.transaction().await?;
+    let stored = sqlx::query_scalar::<_, String>(
+        "SELECT value FROM app_state WHERE key = 'food_sources_manifest'",
+    )
+    .fetch_optional(&mut *transaction)
+    .await?;
+    if stored.as_deref() == Some(manifest.as_str()) {
+        transaction.rollback().await?;
+        return Ok(0);
+    }
+    sqlx::query("DELETE FROM food_nutrients")
+        .execute(&mut *transaction)
+        .await?;
+    sqlx::query("DELETE FROM foods")
+        .execute(&mut *transaction)
+        .await?;
+    let references = ordered
+        .into_iter()
+        .map(|(name, bytes)| (*name, *bytes))
+        .collect::<Vec<_>>();
+    let total = import_csvs_transaction(&mut transaction, &references).await?;
+    sqlx::query("INSERT INTO app_state (key, value) VALUES ('seed_complete', 'true') ON CONFLICT(key) DO UPDATE SET value = 'true'")
+        .execute(&mut *transaction).await?;
+    sqlx::query("INSERT INTO app_state (key, value) VALUES ('food_sources_manifest', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
+        .bind(manifest)
+        .execute(&mut *transaction).await?;
+    transaction.commit().await?;
+    Ok(total)
+}
+
+fn source_manifest(resources: &[&(&str, &[u8])]) -> String {
+    let entries = resources
+        .iter()
+        .map(|(name, bytes)| {
+            let digest = Sha256::digest(*bytes);
+            format!("{name}:{}", format_digest(&digest))
+        })
+        .collect::<Vec<_>>();
+    entries.join("\\n")
+}
+
+fn format_digest(digest: &[u8]) -> String {
+    digest.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
 async fn import_csvs_transaction(
