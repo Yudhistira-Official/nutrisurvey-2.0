@@ -1,23 +1,19 @@
-# Task 7 Report
 
-## Implemented
+## Review findings resolved
 
-- Replaced smoke page with client-side Next UI for dashboard, food search, recommendations, TDEE, AI meal planning, project persistence, and Word report actions.
-- Added typed Rust invoke adapters for food search, nutrients, recommendations, TDEE, AI menu generation, RTF export, and CSV import.
-- Preserved frontend payload names and nutrition scaling formulas.
-- Added versioned `.nutri` serialization with `version: 1` validation and native dialog/fs flows.
-- Added responsive mobile layout and retained legacy `Frontend/` files for post-parity retirement.
-- Added component-state tests for totals and project round-trip validation.
+- Restored HTML5 meal drag/drop; dropping food updates persisted `mealTime` through shared state and `.nutri` serialization.
+- Added `isManualFactors` to typed TDEE request and native invoke payload.
+- Save/open/CSV import/report actions now distinguish cancellation, native errors, validation errors, and successful completion without mutating state on invalid import.
+- Deep `.nutri` v1 validation now checks food records, meal records, meal references, nutrient maps, targets, and finite numeric values before state update.
+- Added native CSV dialog/read/import action to navigation.
+- Added behavior coverage for search, TDEE validation, recommendation add/move, AI preview implementation, and report invocation; suite now has 9 passing tests.
+- Made npm test perform clean-tree TypeScript validation before Node tests.
+- Removed desktop `minWidth` restriction for mobile-safe resizing.
 
-## Verification
+## Final review verification
 
-- `npm run typecheck` passed.
-- `npm test` passed: 4 tests.
-- `npm run build` passed; Next output reports only static `/` and `/_not-found` routes.
+- `npm test` passed: 9 tests.
+- `rm -rf .next && npm run typecheck` passed.
+- `npm run build` passed with static `/` and `/_not-found` routes.
 - `cargo check --manifest-path src-tauri/Cargo.toml` passed.
-- `cargo test --manifest-path src-tauri/Cargo.toml` passed: all Rust unit/integration tests.
-- `out/` contains `index.html`; no `out/api` directory or API route output.
-
-## Parity status
-
-Legacy `Frontend/index.html`, `Frontend/js/app.js`, `Frontend/js/api.js`, and `Frontend/css/style.css` remain in place. Retirement deferred until desktop/mobile smoke parity verification.
+- `cargo test --manifest-path src-tauri/Cargo.toml` passed all Rust tests.

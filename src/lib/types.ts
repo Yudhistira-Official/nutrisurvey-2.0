@@ -28,6 +28,7 @@ export type TdeeRequest = {
   age: number;
   activityFactor: number;
   injuryFactor: number;
+  isManualFactors: boolean;
 };
 export type TdeeResponse = {
   basalMetabolicRate: number;
@@ -120,14 +121,57 @@ export function serializeProject(project: Omit<ProjectFile, 'version'>): string 
   return JSON.stringify({ version: 1, ...project });
 }
 
+function finite(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value);
+}
+
+function validFood(value: unknown): value is SessionFood {
+  if (!value || typeof value !== 'object') return false;
+  const food = value as Partial<SessionFood>;
+  return typeof food.id === 'string' && typeof food.name === 'string' && typeof food.mealTime === 'string' && finite(food.amount) && finite(food.servingSize) && food.servingSize > 0 && typeof food.servingUnit === 'string' && finite(food.servingsPerContainer) && !!food.nutrients && typeof food.nutrients === 'object' && Object.values(food.nutrients).every(finite);
+}
+
+function validMeal(value: unknown): value is MealTime {
+  if (!value || typeof value !== 'object') return false;
+  const meal = value as Partial<MealTime>;
+  return typeof meal.id === 'string' && meal.id.length > 0 && typeof meal.label === 'string' && meal.label.trim().length > 0;
+}
+
+function validTargets(value: unknown): value is Targets {
+  if (!value || typeof value !== 'object') return false;
+  const targets = value as Partial<Targets>;
+  return finite(targets.kcal) && finite(targets.carbs) && finite(targets.protein) && finite(targets.fat) && targets.kcal >= 0 && targets.carbs >= 0 && targets.protein >= 0 && targets.fat >= 0;
+}
+
 export function parseProject(value: string): ProjectFile {
-  const data: unknown = JSON.parse(value);
-  if (!data || typeof data !== 'object' || (data as { version?: unknown }).version !== 1) {
-    throw new Error('File proyek tidak didukung');
-  }
+  let data: unknown;
+  try { data = JSON.parse(value); } catch { throw new Error('File proyek tidak valid'); }
+  if (!data || typeof data !== 'object' || (data as { version?: unknown }).version !== 1) throw new Error('File proyek tidak didukung');
   const project = data as Partial<ProjectFile>;
-  if (!Array.isArray(project.foods) || !Array.isArray(project.meals) || !project.targets) {
-    throw new Error('File proyek tidak valid');
-  }
+  if (!Array.isArray(project.foods) || !project.foods.every(validFood) || !Array.isArray(project.meals) || !project.meals.every(validMeal) || !validTargets(project.targets)) throw new Error('File proyek tidak valid');
+  const mealIds = new Set(project.meals.map(meal => meal.id));
+  if (!project.foods.every(food => mealIds.has(food.mealTime))) throw new Error('File proyek tidak valid');
   return { version: 1, foods: project.foods, meals: project.meals, targets: project.targets };
+}
+
+export function calculateMacroTargets(response: Pick<TdeeResponse, 'totalDailyEnergyExpenditure'>, percentages: { carbs: number; protein: number; fat: number }): Targets | null {
+  if (![percentages.carbs, percentages.protein, percentages.fat].every(finite) || Math.abs(percentages.carbs + percentages.protein + percentages.fat - 100) >= 0.1) return null;
+  const kcal = response.totalDailyEnergyExpenditure;
+  return { kcal, carbs: kcal * percentages.carbs / 100 / 4, protein: kcal * percentages.protein / 100 / 4, fat: kcal * percentages.fat / 100 / 9 };
+}
+
+export function moveFoodToMeal(foods: SessionFood[], foodId: string, mealTime: string): SessionFood[] {
+  return foods.map(food => food.id === foodId ? { ...food, mealTime } : food);
+}
+
+export function implementAiRows(rows: AiMealRow[], meals: MealTime[]) {
+  const added: SessionFood[] = [];
+  const unmatched: string[] = [];
+  for (const row of rows) {
+    const meal = meals.find(item => item.label.trim().toLowerCase() === row.meal_type.trim().toLowerCase());
+    if (!meal) { unmatched.push(row.meal_type); continue; }
+    const grams = row.suggested_grams || 100;
+    added.push({ id: `${Date.now()}-${Math.random()}`, sourceFoodId: row.matched_food_id, name: row.matched_food_name || row.requested_keyword, amount: grams, servingSize: grams, servingUnit: 'g', servingsPerContainer: 1, mealTime: meal.id, nutrients: { ...row.nutrients, energi: row.calories, protein: row.protein, 'lemak total': row.fat, 'karbohidrat total': row.carbohydrate } });
+  }
+  return { added, unmatched };
 }

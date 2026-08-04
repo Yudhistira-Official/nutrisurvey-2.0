@@ -21,8 +21,20 @@ export function createCommandInvoker(invokeFn: typeof invoke = invoke): CommandI
 
 export const invokeCommand = createCommandInvoker();
 
+export function createCommandAdapters(invokeFn: CommandInvoker = invokeCommand) {
+  return {
+    searchFoodsByName: (query: string) => invokeFn<FoodResult[]>('food_search', { query, limit: 20 }),
+    getNutrientList: () => invokeFn<NutrientSummary[]>('nutrient_list'),
+    getRecommendations: (filters: RecommendationFilter[]) => invokeFn<FoodResult[]>('food_recommendations', { filters }),
+    calculateTdee: (request: TdeeRequest) => invokeFn<TdeeResponse>('calculate_tdee', { request }),
+    exportToWord: (request: ExportRequest) => invokeFn<ExportResult>('export_word', { request }),
+  };
+}
+
+const adapters = createCommandAdapters();
+
 export function searchFoodsByName(query: string): Promise<FoodResult[]> {
-  return invokeCommand<FoodResult[]>('food_search', { query, limit: 20 });
+  return adapters.searchFoodsByName(query);
 }
 
 export function getNutrientList(): Promise<NutrientSummary[]> {

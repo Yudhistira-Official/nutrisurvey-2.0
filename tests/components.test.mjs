@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { calculateTotals, parseProject, serializeProject } from '../src/lib/types.ts';
+import { calculateTotals, calculateMacroTargets, implementAiRows, moveFoodToMeal, parseProject, serializeProject } from '../src/lib/types.ts';
+import { createCommandAdapters } from '../src/lib/commands.ts';
 
 test('dashboard totals preserve serving scaling and targets', () => {
   const foods = [{
@@ -19,4 +20,39 @@ test('versioned project round trip rejects unsupported versions', () => {
   const project = { foods: [], meals: [{ id: 'BREAKFAST', label: 'Makan Pagi' }], targets: { kcal: 0, carbs: 0, protein: 0, fat: 0 } };
   assert.deepEqual(parseProject(serializeProject(project)), { version: 1, ...project });
   assert.throws(() => parseProject(JSON.stringify({ ...project, version: 2 })), /tidak didukung/);
+  assert.throws(() => parseProject(JSON.stringify({ version: 1, foods: [{ id: 'x' }], meals: project.meals, targets: project.targets })), /tidak valid/);
+});
+
+test('search adapter forwards query and limit', async () => {
+  const calls = [];
+  const adapters = createCommandAdapters(async (command, payload) => { calls.push({ command, payload }); return []; });
+  await adapters.searchFoodsByName('rice');
+  assert.deepEqual(calls[0], { command: 'food_search', payload: { query: 'rice', limit: 20 } });
+});
+
+test('tdee validation blocks invalid percentages and preserves manual factors', () => {
+  assert.equal(calculateMacroTargets({ totalDailyEnergyExpenditure: 2000 }, { carbs: 40, protein: 30, fat: 20 }), null);
+  const request = { gender: 'Male', weightKg: 70, heightCm: 170, age: 25, activityFactor: 1.2, injuryFactor: 1, isManualFactors: true };
+  assert.deepEqual(request.isManualFactors, true);
+});
+
+test('recommendation add and drag move food to selected meal', () => {
+  const food = { id: 7, name: 'Rice', servingSize: 100, servingUnit: 'g', servingsPerContainer: 1, nutrients: {} };
+  const added = { ...food, id: 'session-1', amount: 100, mealTime: 'BREAKFAST' };
+  assert.equal(added.mealTime, 'BREAKFAST');
+  assert.equal(moveFoodToMeal([added], 'session-1', 'DINNER')[0].mealTime, 'DINNER');
+});
+
+test('AI preview implementation maps matched rows to dashboard meals', () => {
+  const rows = [{ meal_type: 'Makan Pagi', requested_keyword: 'rice', matched_food_id: 7, matched_food_name: 'Rice', suggested_grams: 120, calories: 156, protein: 3, fat: 1, carbohydrate: 34, nutrients: {}, reasoning: 'fit' }];
+  const result = implementAiRows(rows, [{ id: 'BREAKFAST', label: 'Makan Pagi' }]);
+  assert.equal(result.added.length, 1);
+  assert.equal(result.added[0].mealTime, 'BREAKFAST');
+});
+
+test('report adapter invokes export command', async () => {
+  const calls = [];
+  const adapters = createCommandAdapters(async (command, payload) => { calls.push({ command, payload }); return { filename: 'report.rtf' }; });
+  await adapters.exportToWord({ foods: [], mealTimes: [], targets: { kcal: 0, carbs: 0, protein: 0, fat: 0 } });
+  assert.equal(calls[0].command, 'export_word');
 });

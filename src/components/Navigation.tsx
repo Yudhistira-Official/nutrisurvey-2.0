@@ -2,11 +2,12 @@
 
 export type Section = 'dashboard' | 'ai' | 'recommendations' | 'tdee';
 
-export default function Navigation({ section, onSection, onSave, onOpen, onReport }: {
+export default function Navigation({ section, onSection, onSave, onOpen, onImportCsv, onReport }: {
   section: Section;
   onSection: (section: Section) => void;
   onSave: () => void;
   onOpen: () => void;
+  onImportCsv: () => void;
   onReport: () => void;
 }) {
   const items: Array<[Section, string]> = [
@@ -21,6 +22,7 @@ export default function Navigation({ section, onSection, onSave, onOpen, onRepor
     <div className="nav-actions">
       <button onClick={onSave}>Simpan Proyek</button>
       <button onClick={onOpen}>Buka Proyek</button>
+      <button onClick={onImportCsv}>Impor CSV</button>
       <button onClick={onReport}>Word Report</button>
     </div>
   </nav>;
