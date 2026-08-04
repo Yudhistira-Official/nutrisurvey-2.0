@@ -5,7 +5,9 @@
   "windows": ["main"],
   "permissions": [
     "core:default",
+    "dialog:allow-save",
     "fs:allow-appdata-read",
-    "fs:allow-resource-read"
+    "fs:allow-resource-read",
+    "fs:allow-write-file"
   ]
 }

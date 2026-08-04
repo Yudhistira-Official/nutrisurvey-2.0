@@ -1,5 +1,6 @@
 pub mod ai;
 pub mod error;
+pub mod export;
 pub mod foods;
 pub mod import;
 pub mod meals;
@@ -76,6 +77,15 @@ pub mod commands {
     ) -> Result<Vec<models::MappedMealItem>, error::AppError> {
         ai::generate_menu(&state.storage, request).await
     }
+
+    #[tauri::command]
+    pub fn export_word(
+        request: export::ExportRequest,
+    ) -> Result<export::ExportResult, error::AppError> {
+        let template = include_bytes!("../../Assets/template.rtf");
+        let bytes = export::render_rtf(request, template)?;
+        Ok(export::result(bytes))
+    }
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -98,7 +108,8 @@ pub fn run() {
             commands::food_recommendations,
             commands::nutrient_list,
             commands::import_food_csv,
-            commands::generate_ai_menu
+            commands::generate_ai_menu,
+            commands::export_word
         ])
         .run(tauri::generate_context!())
         .expect("error while running NutriSurvey");
