@@ -1,12 +1,15 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Least-privilege permissions for the initial native scaffold.",
+  "description": "Least-privilege permissions for native report delivery and packaged resources.",
   "windows": ["main"],
+  "platforms": ["linux", "macOS", "windows", "android", "iOS"],
   "permissions": [
     "core:default",
     "dialog:allow-save",
+    "dialog:allow-open",
     "fs:allow-appdata-read",
+    "fs:allow-appdata-write",
     "fs:allow-resource-read"
   ]
 }

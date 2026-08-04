@@ -4,10 +4,14 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "dev": "next dev",
     "build": "next build",
+    "lint": "eslint .",
     "test": "npm run test:compile && node --test tests/**/*.test.mjs",
     "test:compile": "tsc --noEmit --allowImportingTsExtensions",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "tauri:dev": "tauri dev",
+    "tauri:build": "tauri build"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.11.1",
@@ -18,9 +22,12 @@
     "react-dom": "^19.2.0"
   },
   "devDependencies": {
-    "@types/react": "^19.2.0",
+    "@tauri-apps/cli": "^2.11.4",
     "@types/node": "^24.0.0",
+    "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.0",
+    "eslint": "^9.39.5",
+    "eslint-config-next": "^16.3.0",
     "typescript": "^5.9.3"
   }
 }

@@ -27,6 +27,19 @@
     "resources": [
       "../DatabaseMakanan/*.csv",
       "../Assets/template.rtf"
-    ]
+    ],
+    "icon": ["icons/icon.png"],
+    "category": "Utility",
+    "shortDescription": "Nutrition analysis and meal planning",
+    "longDescription": "Native nutrition analysis, food search, meal planning, and report export.",
+    "copyright": "NutriSurvey contributors",
+    "createUpdaterArtifacts": false
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "${TAURI_UPDATER_PUBLIC_KEY}",
+      "endpoints": ["${TAURI_UPDATER_ENDPOINT}"],
+      "dangerousInsecureTransportProtocol": false
+    }
   }
 }
