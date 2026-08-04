@@ -1,7 +1,7 @@
 use crate::{
     error::AppError,
     import::canonical_nutrient_name,
-    models::{FoodResult, NutrientSummary},
+    models::{FoodResult, NutrientSummary, RecommendationFilter},
     storage::Storage,
 };
 use sqlx::FromRow;
@@ -25,7 +25,11 @@ pub async fn search(
     limit: u32,
 ) -> Result<Vec<FoodResult>, AppError> {
     let cap = if query.trim().is_empty() {
-        5
+        if limit <= 10 {
+            limit
+        } else {
+            5
+        }
     } else {
         limit.min(20)
     };
@@ -62,6 +66,33 @@ pub async fn search(
         }
     }
     Ok(result)
+}
+
+pub async fn recommend(
+    storage: &Storage,
+    filters: &[RecommendationFilter],
+) -> Result<Vec<FoodResult>, AppError> {
+    if filters.is_empty() {
+        return Err(AppError::Validation(
+            "at least one filter is required".into(),
+        ));
+    }
+    let mut results = search(storage, "", 10).await?;
+    for filter in filters {
+        let nutrient = crate::import::canonical_nutrient_name(&filter.nutrient);
+        results.retain(|food| {
+            food.nutrients
+                .get(&nutrient)
+                .is_some_and(|amount| match filter.operator.as_str() {
+                    ">" => *amount > filter.value,
+                    "<" => *amount < filter.value,
+                    "=" => *amount == filter.value,
+                    _ => false,
+                })
+        });
+    }
+    results.truncate(10);
+    Ok(results)
 }
 
 pub async fn status(storage: &Storage) -> Result<FoodStatus, AppError> {

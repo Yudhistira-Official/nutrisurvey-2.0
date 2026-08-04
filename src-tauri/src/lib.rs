@@ -1,7 +1,9 @@
 pub mod error;
 pub mod foods;
 pub mod import;
+pub mod meals;
 pub mod models;
+pub mod nutrition;
 pub mod storage;
 
 use std::sync::Arc;
@@ -33,6 +35,21 @@ pub mod commands {
         state: State<'_, AppState>,
     ) -> Result<foods::FoodStatus, error::AppError> {
         foods::status(&state.storage).await
+    }
+
+    #[tauri::command]
+    pub fn calculate_tdee(
+        request: models::TdeeRequest,
+    ) -> Result<models::TdeeResponse, error::AppError> {
+        nutrition::calculate_tdee(request)
+    }
+
+    #[tauri::command]
+    pub async fn food_recommendations(
+        state: State<'_, AppState>,
+        filters: Vec<models::RecommendationFilter>,
+    ) -> Result<Vec<models::FoodResult>, error::AppError> {
+        foods::recommend(&state.storage, &filters).await
     }
 
     #[tauri::command]
@@ -68,6 +85,8 @@ pub fn run() {
             commands::ping,
             commands::food_search,
             commands::food_status,
+            commands::calculate_tdee,
+            commands::food_recommendations,
             commands::nutrient_list,
             commands::import_food_csv
         ])

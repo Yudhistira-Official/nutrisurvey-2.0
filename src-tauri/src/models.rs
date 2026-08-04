@@ -138,6 +138,14 @@ pub struct RecommendationFilter {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AiMealInput {
+    pub meal_type: String,
+    pub food_keyword: String,
+    pub suggested_grams: i32,
+    pub reasoning: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AiConfig {
     pub provider: String,
