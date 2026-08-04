@@ -17,12 +17,16 @@ async function installMockBridge(page: Page) {
   await page.addInitScript(({ fixtureFoods, secret }) => {
     const state = {
       calls: [] as Array<{ command: string; payload: unknown }>,
+      serializedCalls: [] as string[],
+      logs: [] as string[],
       projectBytes: [] as number[],
       importedBytes: [] as number[],
     };
     const bridge = {
       invoke: async (command: string, payload?: { request?: unknown; bytes?: number[] } | Uint8Array, options?: { headers?: Record<string, string> }) => {
         state.calls.push({ command, payload: { payload, options } });
+        state.serializedCalls.push(JSON.stringify({ command, payload, options }, (key, value) => key === 'apiKey' ? '[REDACTED]' : value));
+        state.logs.push(`invoke:${command}`);
         const args = payload as { bytes?: number[] } | Uint8Array | undefined;
         if (command === 'ping') return 'pong';
         if (command === 'food_status') return { foodCount: fixtureFoods.length, isReady: true };
@@ -115,7 +119,7 @@ test('native UI smoke covers readiness, search, recommendations, import, roundtr
 
   await page.getByRole('button', { name: 'Word Report' }).click();
   await expect(page.getByText(/Laporan tersimpan/)).toBeVisible();
-  const smokeState = await page.evaluate(() => (window as Window & { __NUTRISURVEY_SMOKE__?: { state: { calls: Array<{ command: string; payload: unknown }>; projectBytes: number[]; importedBytes: number[] } } }).__NUTRISURVEY_SMOKE__?.state);
+  const smokeState = await page.evaluate(() => (window as Window & { __NUTRISURVEY_SMOKE__?: { state: { calls: Array<{ command: string; payload: unknown }>; serializedCalls: string[]; logs: string[]; projectBytes: number[]; importedBytes: number[] } } }).__NUTRISURVEY_SMOKE__?.state);
   expect(smokeState?.calls.map(call => call.command)).toEqual(expect.arrayContaining([
     'food_status',
     'food_search',
@@ -129,4 +133,13 @@ test('native UI smoke covers readiness, search, recommendations, import, roundtr
   expect(smokeState?.importedBytes.length).toBeGreaterThan(0);
   expect(new TextDecoder().decode(Uint8Array.from(smokeState?.projectBytes || []))).not.toContain(mockedSecret);
   expect(new TextDecoder().decode(Uint8Array.from(smokeState?.importedBytes || []))).not.toContain(mockedSecret);
+  expect(JSON.stringify(smokeState?.serializedCalls || [])).not.toContain(mockedSecret);
+  expect(JSON.stringify(smokeState?.logs || [])).not.toContain(mockedSecret);
+  const bundleScan = await page.evaluate(async secret => {
+    const urls = performance.getEntriesByType('resource').map(entry => (entry as PerformanceResourceTiming).name).filter(url => url.includes('/_next/'));
+    const contents = await Promise.all(urls.map(async url => (await fetch(url)).text()));
+    return { urls, contents: contents.map(content => ({ hasSecret: content.includes(secret), size: content.length })) };
+  }, mockedSecret);
+  expect(bundleScan.urls.length).toBeGreaterThan(0);
+  expect(bundleScan.contents.every(content => !content.hasSecret && content.size > 0)).toBe(true);
 });

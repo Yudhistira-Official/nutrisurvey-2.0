@@ -4,6 +4,7 @@ use nutrisurvey_lib::{
     foods, import, meals,
     models::{AiMealInput, AiRequest, RecommendationFilter, TdeeRequest},
     nutrition,
+    project::{self, ProjectFile, ProjectFood, ProjectMeal, ProjectTargets},
     storage::Storage,
 };
 use reqwest::Client;
@@ -16,10 +17,11 @@ static IDS: AtomicUsize = AtomicUsize::new(0);
 
 async fn storage() -> (Storage, std::path::PathBuf) {
     let id = IDS.fetch_add(1, Ordering::Relaxed);
-    let path = std::env::temp_dir().join(format!("nutrisurvey-acceptance-{id}.sqlite"));
-    let _ = tokio::fs::remove_file(&path).await;
+    let root = std::env::temp_dir().join(format!("nutrisurvey-acceptance-{id}"));
+    let path = root.join("app-data/nutrisurvey.sqlite3");
+    let _ = tokio::fs::remove_dir_all(&root).await;
     let storage = Storage::open_path(&path).await.unwrap();
-    (storage, path)
+    (storage, root)
 }
 
 async fn mock_ai(
@@ -130,7 +132,95 @@ async fn native_acceptance_covers_readiness_import_search_recommendations_and_td
     })
     .unwrap();
     assert_eq!(tdee.total_daily_energy_expenditure, 2035.2);
-    let _ = tokio::fs::remove_file(path).await;
+    let _ = tokio::fs::remove_dir_all(path).await;
+}
+
+#[tokio::test]
+async fn native_acceptance_seeds_configured_resource_dir_from_real_csv_files() {
+    let id = IDS.fetch_add(1, Ordering::Relaxed);
+    let root = std::env::temp_dir().join(format!("nutrisurvey-resource-acceptance-{id}"));
+    let data_dir = root.join("app-data");
+    let resource_dir = root.join("resources");
+    tokio::fs::create_dir_all(&resource_dir).await.unwrap();
+    tokio::fs::write(
+        resource_dir.join("01-standard.csv"),
+        b"Nama Makanan;Kategori;Energi\nResource Rice;Pokok;130\n",
+    )
+    .await
+    .unwrap();
+    tokio::fs::write(
+        resource_dir.join("02-scraper.csv"),
+        b"makanan,kategori,komponen_nutrient_1,isi_nutrient_1\nResource Egg,Protein,Protein,13 g\n",
+    )
+    .await
+    .unwrap();
+    let database = data_dir.join("nutrisurvey.sqlite3");
+    let storage = Storage::open_paths(&database, &resource_dir).await.unwrap();
+    assert_eq!(
+        nutrisurvey_lib::seed_configured_resources(&storage)
+            .await
+            .unwrap(),
+        2
+    );
+    assert!(import::seed_is_complete(&storage).await.unwrap());
+    assert_eq!(
+        foods::search(&storage, "Resource Rice", 20)
+            .await
+            .unwrap()
+            .len(),
+        1
+    );
+    assert_eq!(
+        foods::search(&storage, "Resource Egg", 20)
+            .await
+            .unwrap()
+            .len(),
+        1
+    );
+    assert_eq!(
+        nutrisurvey_lib::seed_configured_resources(&storage)
+            .await
+            .unwrap(),
+        0
+    );
+    drop(storage);
+    tokio::fs::remove_dir_all(root).await.unwrap();
+}
+
+#[tokio::test]
+async fn native_acceptance_uses_production_nutri_file_roundtrip() {
+    let (storage, root) = storage().await;
+    let path = root.join("project.nutri");
+    let project = ProjectFile {
+        version: 1,
+        foods: vec![ProjectFood {
+            id: "fixture-1".into(),
+            name: "Nasi 🍚".into(),
+            serving_size: 100.0,
+            serving_unit: "g".into(),
+            servings_per_container: 1.0,
+            amount: 125.0,
+            meal_time: "BREAKFAST".into(),
+            nutrients: HashMap::from([(String::from("energi"), 130.0)]),
+        }],
+        meals: vec![ProjectMeal {
+            id: "BREAKFAST".into(),
+            label: "Makan Pagi".into(),
+        }],
+        targets: ProjectTargets {
+            kcal: 2000.0,
+            carbs: 250.0,
+            protein: 100.0,
+            fat: 60.0,
+        },
+    };
+    project::save(&path, &project).await.unwrap();
+    assert!(path.is_file());
+    let loaded = project::load(&path).await.unwrap();
+    assert_eq!(loaded, project);
+    assert_eq!(loaded.foods[0].name, "Nasi 🍚");
+    drop(storage);
+    tokio::fs::remove_dir_all(root).await.unwrap();
 }
 
 #[tokio::test]
@@ -171,11 +261,19 @@ async fn native_acceptance_covers_mocked_ai_meal_mapping_and_secret_redaction() 
     .await
     .unwrap();
     assert_eq!(mapped[0].matched_food_name, "Nasi");
-    let _ = tokio::fs::remove_file(path).await;
+    let _ = tokio::fs::remove_dir_all(path).await;
 }
 
-fn assert_tree_has_no_secret(root: &str, secret: &str) {
-    let mut pending = vec![std::path::PathBuf::from(root)];
+fn repo_root() -> std::path::PathBuf {
+    std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .to_path_buf()
+}
+
+fn assert_tree_has_no_secret(root: &std::path::Path, secret: &str) {
+    assert!(root.exists(), "artifact path missing: {}", root.display());
+    let mut pending = vec![root.to_path_buf()];
     while let Some(path) = pending.pop() {
         if path.is_dir() {
             for entry in std::fs::read_dir(path).unwrap() {
@@ -217,18 +315,19 @@ fn native_acceptance_covers_unicode_rtf_and_artifact_secret_scans() {
     assert_eq!(commands::ping(), "pong");
 
     let (storage, path) = tokio::runtime::Runtime::new().unwrap().block_on(storage());
-    let report_path = path.with_file_name("acceptance-report.rtf");
+    let report_path = path.join("acceptance-report.rtf");
+    let database_path = path.join("app-data/nutrisurvey.sqlite3");
     std::fs::write(&report_path, output).unwrap();
-    let sqlite = std::fs::read(&path).unwrap();
+    let sqlite = std::fs::read(&database_path).unwrap();
     assert!(!String::from_utf8_lossy(&sqlite).contains(secret));
     assert!(!String::from_utf8_lossy(&std::fs::read(&report_path).unwrap()).contains(secret));
-    assert_tree_has_no_secret("../out", secret);
-    assert_tree_has_no_secret("../../Assets", secret);
-    assert_tree_has_no_secret("../../DatabaseMakanan", secret);
+    let root = repo_root();
+    assert_tree_has_no_secret(&root.join("out"), secret);
+    assert_tree_has_no_secret(&root.join("Assets"), secret);
+    assert_tree_has_no_secret(&root.join("DatabaseMakanan"), secret);
     assert!(!"https://example.test/api/v1".contains(secret));
     assert!(!format!("{:?}", ai_request("https://example.test".into())).contains(secret));
     assert!(!"startup log: database ready; export complete".contains(secret));
     drop(storage);
-    let _ = std::fs::remove_file(path);
-    let _ = std::fs::remove_file(report_path);
+    let _ = std::fs::remove_dir_all(path);
 }

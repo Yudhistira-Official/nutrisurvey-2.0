@@ -26,11 +26,21 @@ impl Storage {
     }
 
     pub async fn open_path(path: &Path) -> Result<Self, AppError> {
+        let resource_dir = PathBuf::new();
+        Self::open_paths(path, &resource_dir).await
+    }
+
+    pub async fn open_paths(path: &Path, resource_dir: &Path) -> Result<Self, AppError> {
         let app_data_dir = path
             .parent()
             .ok_or_else(|| AppError::Io("database path has no parent".into()))?
             .to_path_buf();
-        Self::open_at(app_data_dir, PathBuf::new(), Some(path.to_path_buf())).await
+        Self::open_at(
+            app_data_dir,
+            resource_dir.to_path_buf(),
+            Some(path.to_path_buf()),
+        )
+        .await
     }
 
     async fn open_at(

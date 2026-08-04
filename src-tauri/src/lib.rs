@@ -6,6 +6,7 @@ pub mod import;
 pub mod meals;
 pub mod models;
 pub mod nutrition;
+pub mod project;
 pub mod storage;
 
 use std::sync::Arc;
@@ -155,7 +156,7 @@ pub fn run() {
         .setup(|app| {
             let storage = tauri::async_runtime::block_on(storage::Storage::open(app.handle()))?;
             let storage = Arc::new(storage);
-            tauri::async_runtime::block_on(seed_resources(&storage))?;
+            tauri::async_runtime::block_on(seed_configured_resources(&storage))?;
             app.manage(AppState { storage });
             Ok(())
         })
@@ -174,32 +175,36 @@ pub fn run() {
         .expect("error while running NutriSurvey");
 }
 
-async fn seed_resources(storage: &storage::Storage) -> Result<(), error::AppError> {
+pub async fn seed_configured_resources(storage: &storage::Storage) -> Result<u64, error::AppError> {
     if import::seed_is_complete(storage).await? {
-        return Ok(());
+        return Ok(0);
     }
-    let mut resources = Vec::new();
-    if storage.resource_dir().is_dir() {
-        let mut entries = tokio::fs::read_dir(storage.resource_dir()).await?;
+    let resource_dir = storage.resource_dir();
+    let mut paths = Vec::new();
+    if resource_dir.is_dir() {
+        let mut entries = tokio::fs::read_dir(resource_dir).await?;
         while let Some(entry) = entries.next_entry().await? {
             let path = entry.path();
             if path.extension().and_then(|extension| extension.to_str()) == Some("csv") {
-                resources.push((
-                    path.file_name()
-                        .and_then(|name| name.to_str())
-                        .unwrap_or("resource.csv")
-                        .to_string(),
-                    tokio::fs::read(path).await?,
-                ));
+                paths.push(path);
             }
         }
+    }
+    paths.sort();
+    let mut resources = Vec::new();
+    for path in paths {
+        let name = path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("resource.csv")
+            .to_string();
+        resources.push((name, tokio::fs::read(path).await?));
     }
     let references = resources
         .iter()
         .map(|(name, bytes)| (name.as_str(), bytes.as_slice()))
         .collect::<Vec<_>>();
-    import::seed_csvs(storage, &references).await?;
-    Ok(())
+    import::seed_csvs(storage, &references).await
 }
 
 #[cfg(test)]
