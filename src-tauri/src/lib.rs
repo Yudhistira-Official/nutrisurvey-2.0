@@ -96,17 +96,10 @@ pub mod commands {
                 .file()
                 .set_file_name(&initial.filename)
                 .add_filter("Rich Text Format", &["rtf"])
-                .blocking_save_file()
-                .ok_or_else(|| error::AppError::Export("Penyimpanan dibatalkan".into()))?;
-            let path = selected
-                .into_path()
-                .map_err(|error| error::AppError::Export(error.to_string()))?;
-            if path.extension().and_then(|value| value.to_str()) != Some("rtf") {
-                return Err(error::AppError::Export(
-                    "Lokasi penyimpanan harus berakhiran .rtf".into(),
-                ));
-            }
-            std::fs::write(&path, &bytes)?;
+                .blocking_save_file();
+            let selected = selected.and_then(|path| path.into_path().ok());
+            let path = export::validate_selected_path(selected.as_deref())?;
+            std::fs::write(path, &bytes)?;
             Ok(export::ExportResult {
                 delivery: export::ExportDelivery::Saved,
                 saved_path: Some(path.to_string_lossy().into_owned()),
@@ -117,7 +110,8 @@ pub mod commands {
         #[cfg(mobile)]
         {
             let _ = app;
-            Ok(initial)
+            let _ = initial;
+            export::mobile_delivery_error()
         }
     }
 }

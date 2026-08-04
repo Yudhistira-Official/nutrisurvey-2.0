@@ -394,6 +394,24 @@ fn civil_date(days: i64) -> (i32, u32, u32) {
     (y as i32 + if m <= 2 { 1 } else { 0 }, m as u32, d as u32)
 }
 
+pub fn validate_selected_path(
+    path: Option<&std::path::Path>,
+) -> Result<&std::path::Path, AppError> {
+    let path = path.ok_or_else(|| AppError::Export("Penyimpanan dibatalkan".into()))?;
+    if path.extension().and_then(|value| value.to_str()) != Some("rtf") {
+        return Err(AppError::Export(
+            "Lokasi penyimpanan harus berakhiran .rtf".into(),
+        ));
+    }
+    Ok(path)
+}
+
+pub fn mobile_delivery_error() -> Result<ExportResult, AppError> {
+    Err(AppError::Export(
+        "mobile share/document picker unsupported: no Tauri plugin configured".into(),
+    ))
+}
+
 pub fn content_type() -> &'static str {
     CONTENT_TYPE
 }

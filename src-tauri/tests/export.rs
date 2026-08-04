@@ -1,5 +1,9 @@
-use nutrisurvey_lib::export::{self, ExportRequest, FoodEntry, MealTime, NutritionTargets};
+use nutrisurvey_lib::{
+    error::AppError,
+    export::{self, ExportRequest, FoodEntry, MealTime, NutritionTargets},
+};
 use std::collections::HashMap;
+use std::path::Path;
 
 fn request(foods: Vec<FoodEntry>) -> ExportRequest {
     ExportRequest {
@@ -75,6 +79,26 @@ fn empty_meals_render_zero_analysis_without_error() {
 fn invalid_template_returns_export_error() {
     let error = export::render_rtf(request(Vec::new()), b"not rtf").unwrap_err();
     assert!(matches!(error, nutrisurvey_lib::error::AppError::Export(_)));
+}
+
+#[test]
+fn desktop_save_rejects_cancelled_dialog() {
+    let error = export::validate_selected_path(None).unwrap_err();
+    assert!(matches!(error, AppError::Export(message) if message == "Penyimpanan dibatalkan"));
+}
+
+#[test]
+fn desktop_save_rejects_non_rtf_selected_path() {
+    let error = export::validate_selected_path(Some(Path::new("report.docx"))).unwrap_err();
+    assert!(matches!(error, AppError::Export(message) if message.contains(".rtf")));
+}
+
+#[test]
+fn mobile_delivery_is_explicitly_unsupported_without_share_plugin() {
+    let error = export::mobile_delivery_error().unwrap_err();
+    assert!(
+        matches!(error, AppError::Export(message) if message.contains("mobile") && message.contains("share"))
+    );
 }
 
 #[test]
