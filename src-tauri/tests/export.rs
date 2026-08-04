@@ -94,6 +94,13 @@ fn desktop_save_rejects_non_rtf_selected_path() {
 }
 
 #[test]
+fn desktop_save_preserves_selected_path_conversion_error() {
+    let selected: Option<Result<std::path::PathBuf, &str>> = Some(Err("invalid dialog path"));
+    let error = export::resolve_selected_path(selected).unwrap_err();
+    assert!(matches!(error, AppError::Export(message) if message == "invalid dialog path"));
+}
+
+#[test]
 fn mobile_delivery_is_explicitly_unsupported_without_share_plugin() {
     let error = export::mobile_delivery_error().unwrap_err();
     assert!(

@@ -97,7 +97,7 @@ pub mod commands {
                 .set_file_name(&initial.filename)
                 .add_filter("Rich Text Format", &["rtf"])
                 .blocking_save_file();
-            let selected = selected.and_then(|path| path.into_path().ok());
+            let selected = export::resolve_selected_path(selected.map(|path| path.into_path()))?;
             let path = export::validate_selected_path(selected.as_deref())?;
             std::fs::write(path, &bytes)?;
             Ok(export::ExportResult {

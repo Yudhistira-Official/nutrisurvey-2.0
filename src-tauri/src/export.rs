@@ -394,6 +394,15 @@ fn civil_date(days: i64) -> (i32, u32, u32) {
     (y as i32 + if m <= 2 { 1 } else { 0 }, m as u32, d as u32)
 }
 
+pub fn resolve_selected_path<P, E>(selected: Option<Result<P, E>>) -> Result<Option<P>, AppError>
+where
+    E: std::fmt::Display,
+{
+    selected
+        .map(|path| path.map_err(|error| AppError::Export(error.to_string())))
+        .transpose()
+}
+
 pub fn validate_selected_path(
     path: Option<&std::path::Path>,
 ) -> Result<&std::path::Path, AppError> {
