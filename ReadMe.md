@@ -75,4 +75,10 @@ Rust/Tauri feature parity and frontend migration are implemented through Task 7.
 
 ## CI
 
-`.github/workflows/build.yml` runs frontend, Rust, Linux, Windows, macOS, Android, and iOS checks where GitHub-hosted toolchains exist. Signing is conditional on repository/organization secrets. Unsigned artifacts are uploaded when signing secrets are unavailable; secrets are never embedded in the repository.
+`.github/workflows/build.yml` runs frontend, Rust, Linux, Windows, macOS, Android, and iOS checks where GitHub-hosted toolchains exist. Signing is conditional on repository/organization secrets. Unsigned artifacts are uploaded when signing secrets are unavailable; secrets are never embedded in the repository. Frontend smoke runs against the static `out/` app with a mocked Tauri invoke bridge.
+
+## Task 9 acceptance status
+
+Native acceptance coverage includes startup/readiness, both CSV fixture shapes, search, recommendations, TDEE, mocked AI mapping and key redaction, `.nutri` version contract, and Unicode RTF rendering. Local verification passed frontend lint/typecheck/tests, Rust fmt/clippy/tests, static build, and native release binary compilation.
+
+Legacy `Backend/`, `Frontend/`, and launcher files remain because migration retirement requires every parity gate to pass. Linux packaging is blocked locally by missing `linuxdeploy`; Playwright smoke could not run because Chromium download timed out. Android Rust targets and `adb` are installed, but Android build was not completed in this environment. iOS build requires macOS/Xcode and is unavailable here. CI remains authoritative for Windows, macOS, Android, iOS, and hosted packaged-start checks.

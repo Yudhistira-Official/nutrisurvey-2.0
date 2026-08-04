@@ -8,6 +8,7 @@ edition = "2021"
 [lib]
 name = "nutrisurvey_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
+doctest = false
 
 [build-dependencies]
 tauri-build = { version = "2.4.1", features = [] }
