@@ -28,15 +28,16 @@ test('versioned project round trip rejects unsupported versions', () => {
   assert.throws(() => parseProject(JSON.stringify({ version: 1, foods: [{ id: 'x' }], meals: project.meals, targets: project.targets })), /tidak valid/);
 });
 
-test('project file adapter uses dialog and filesystem boundaries for round trip', async () => {
-  let bytes;
+test('project file adapter delegates selected-path handling to native commands', async () => {
+  const calls = [];
   const project = { foods: [], meals: [{ id: 'BREAKFAST', label: 'Makan Pagi' }], targets: { kcal: 0, carbs: 0, protein: 0, fat: 0 } };
-  const adapter = createProjectFileAdapter(
-    { save: async () => '/tmp/fixture.nutri', open: async () => '/tmp/fixture.nutri' },
-    { writeFile: async (_path, value) => { bytes = value; }, readFile: async () => bytes },
-  );
+  const adapter = createProjectFileAdapter({
+    saveProject: async value => { calls.push(['save', value]); return true; },
+    openProject: async () => { calls.push(['open']); return { version: 1, ...project }; },
+  });
   assert.equal(await adapter.save(project), true);
   assert.deepEqual(await adapter.open(), { version: 1, ...project });
+  assert.deepEqual(calls, [['save', { version: 1, ...project }], ['open']]);
 });
 
 test('real .nutri file write, read, and re-import preserves project data', () => {

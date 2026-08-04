@@ -165,6 +165,13 @@ fn command_delivery_boundary_preserves_mobile_unsupported_error() {
 }
 
 #[test]
+fn mobile_delivery_result_never_claims_share_without_delivery() {
+    let result = export::mobile_delivery_result(vec![1, 2, 3]);
+    assert!(result.is_err());
+    assert!(result.unwrap_err().to_string().contains("mobile"));
+}
+
+#[test]
 fn result_has_rtf_content_type_and_date_filename() {
     let result = export::result(vec![1, 2, 3]);
     assert_eq!(result.content_type, "application/rtf");

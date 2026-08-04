@@ -54,7 +54,11 @@ async fn mock_ai(
         socket.write_all(response.as_bytes()).await.unwrap();
         String::from_utf8(request).unwrap()
     });
-    (format!("http://ai.test:{}", address.port()), address, task)
+    (
+        format!("http://example.com:{}", address.port()),
+        address,
+        task,
+    )
 }
 
 fn ai_request(base_url: String) -> AiRequest {
@@ -236,7 +240,7 @@ async fn native_acceptance_covers_mocked_ai_meal_mapping_and_secret_redaction() 
     let body = r#"{"choices":[{"message":{"content":"{\"meal_plan\":[{\"meal_type\":\"Sarapan\",\"food_keyword\":\"Nasi\",\"suggested_grams\":100,\"reasoning\":\"fixture\"}]}"}}]}"#;
     let (base_url, address, task) = mock_ai(body).await;
     let client = Client::builder()
-        .resolve("ai.test", address)
+        .resolve("example.com", address)
         .build()
         .unwrap();
     let result = ai::generate_menu_with_client(&storage, ai_request(base_url), &client)

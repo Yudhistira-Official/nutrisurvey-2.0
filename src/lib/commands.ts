@@ -11,6 +11,7 @@ import type {
   RecommendationFilter,
   TdeeRequest,
   TdeeResponse,
+  ProjectFile,
 } from './types';
 
 export type CommandPayload = Record<string, unknown>;
@@ -30,6 +31,8 @@ export function createCommandAdapters(invokeFn: CommandInvoker = invokeCommand) 
     getRecommendations: (filters: RecommendationFilter[]) => invokeFn<FoodResult[]>('food_recommendations', { filters }),
     calculateTdee: (request: TdeeRequest) => invokeFn<TdeeResponse>('calculate_tdee', { request }),
     exportToWord: (request: ExportRequest) => invokeFn<ExportResult>('export_word', { request }),
+    saveProject: (project: ProjectFile) => invokeFn<boolean>('project_save', { project }),
+    openProject: () => invokeFn<ProjectFile | null>('project_open'),
   };
 }
 

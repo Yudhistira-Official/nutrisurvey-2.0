@@ -79,6 +79,57 @@ pub mod commands {
         ai::generate_menu(&state.storage, request).await
     }
 
+    #[tauri::command]
+    pub fn project_save(
+        app: AppHandle,
+        project: project::ProjectFile,
+    ) -> Result<bool, error::AppError> {
+        #[cfg(desktop)]
+        {
+            use tauri_plugin_dialog::DialogExt;
+            let selected = app
+                .dialog()
+                .file()
+                .set_file_name("Nutri.nutri")
+                .add_filter("Nutri project", &["nutri"])
+                .blocking_save_file();
+            let Some(path) = export::resolve_selected_path(selected.map(|path| path.into_path()))?
+            else {
+                return Ok(false);
+            };
+            tauri::async_runtime::block_on(project::save(&path, &project))?;
+            Ok(true)
+        }
+        #[cfg(mobile)]
+        {
+            let _ = (app, project);
+            Err(error::AppError::Io("Proyek mobile belum didukung".into()))
+        }
+    }
+
+    #[tauri::command]
+    pub fn project_open(app: AppHandle) -> Result<Option<project::ProjectFile>, error::AppError> {
+        #[cfg(desktop)]
+        {
+            use tauri_plugin_dialog::DialogExt;
+            let selected = app
+                .dialog()
+                .file()
+                .add_filter("Nutri project", &["nutri"])
+                .blocking_pick_file();
+            let Some(path) = export::resolve_selected_path(selected.map(|path| path.into_path()))?
+            else {
+                return Ok(None);
+            };
+            Ok(Some(tauri::async_runtime::block_on(project::load(&path))?))
+        }
+        #[cfg(mobile)]
+        {
+            let _ = app;
+            Err(error::AppError::Io("Proyek mobile belum didukung".into()))
+        }
+    }
+
     pub trait ExportDeliveryHandler {
         fn deliver(
             self,
@@ -169,6 +220,8 @@ pub fn run() {
             commands::nutrient_list,
             commands::import_food_csv,
             commands::generate_ai_menu,
+            commands::project_save,
+            commands::project_open,
             commands::export_word
         ])
         .run(tauri::generate_context!())

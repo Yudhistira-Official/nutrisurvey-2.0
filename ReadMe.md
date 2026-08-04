@@ -7,8 +7,8 @@ NutriSurvey is a native Tauri v2 nutrition analysis application. It uses a Next.
 - Local food and nutrient database with CSV import.
 - Serving-aware nutrient totals and TDEE calculation.
 - Nutrient recommendations and AI meal plans mapped to local foods.
-- RTF report export through native save/share flows.
-- Responsive desktop and mobile UI.
+- RTF report export through native desktop save flow.
+- Responsive desktop and mobile UI; mobile report delivery is explicitly unsupported until a compatible share/document-picker plugin is adopted.
 
 ## Development setup
 
@@ -60,7 +60,8 @@ Android CI installs Android platform 35, build-tools 35.0.0, NDK 27.2.12479018, 
 - SQLite database is stored in the platform-native application data directory.
 - Bundled CSV files under `DatabaseMakanan/` and `Assets/template.rtf` are read-only packaged resources.
 - Imported CSV files are copied into the application data `imports` directory before import.
-- Desktop reports use a user-selected save path. Mobile export uses the native delivery abstraction.
+- Desktop reports use a user-selected save path. Mobile report export currently returns an explicit unsupported error; it never claims a share succeeded.
+- Desktop `.nutri` save/open uses Rust commands with paths selected by native dialogs. Mobile `.nutri` project file delivery is currently unsupported.
 - Existing `.nutri` project data remains application-managed and is not written to repository paths.
 
 ## AI key handling
@@ -75,7 +76,7 @@ Rust/Tauri feature parity and frontend migration are implemented through Task 7.
 
 ## CI
 
-`.github/workflows/build.yml` runs frontend, Rust, Linux, Windows, macOS, Android, and iOS checks where GitHub-hosted toolchains exist. Signing is conditional on repository/organization secrets. Unsigned artifacts are uploaded when signing secrets are unavailable; secrets are never embedded in the repository. Frontend smoke runs against the static `out/` app with a mocked Tauri invoke bridge.
+`.github/workflows/build.yml` runs frontend, Rust, Linux, Windows, macOS, Android, and iOS checks where GitHub-hosted toolchains exist. Signing is conditional on repository/organization secrets. Unsigned artifacts are uploaded when signing secrets are unavailable; secrets are never embedded in the repository. Frontend smoke runs against the static `out/` app with a mocked Tauri invoke bridge. `npm run test:e2e` builds `out/` first through Playwright's web server prerequisite; running it without Node/npm or a successful `npm run build` fails with setup/build output instead of depending on cwd or stale artifacts.
 
 ## Task 9 acceptance status
 

@@ -12,7 +12,7 @@ use std::time::Duration;
 
 mod anthropic;
 mod google;
-pub use google::google_endpoint;
+pub use google::{google_endpoint, google_endpoint_for_client};
 mod openai;
 pub mod prompt;
 
@@ -26,6 +26,8 @@ pub async fn generate_menu(
         .timeout(REQUEST_TIMEOUT)
         .build()
         .map_err(|_| AppError::Ai("unable to configure AI client".into()))?;
+    validate_request(&request)?;
+    secure_endpoint(&request.base_url, "")?;
     generate_menu_with_client(storage, request, &client).await
 }
 
@@ -90,11 +92,58 @@ fn validate_request(request: &AiRequest) -> Result<(), AppError> {
             "AI model and meal types are required".into(),
         ));
     }
-    endpoint(&request.base_url, "")?;
+    endpoint_shape(&request.base_url)?;
     Ok(())
 }
 
+fn endpoint_shape(base_url: &str) -> Result<Url, AppError> {
+    let url = Url::parse(base_url.trim())
+        .map_err(|_| AppError::Validation("AI base URL is invalid".into()))?;
+    if !matches!(url.scheme(), "http" | "https")
+        || url.host_str().is_none()
+        || !url.username().is_empty()
+        || url.password().is_some()
+        || url.query().is_some()
+        || url.fragment().is_some()
+        || is_private_host(&url)
+    {
+        return Err(AppError::Validation("AI base URL is invalid".into()));
+    }
+    Ok(url)
+}
+
+pub fn endpoint_for_client(base_url: &str, suffix: &str) -> Result<Url, AppError> {
+    join_endpoint(endpoint_shape(base_url)?, suffix)
+}
+
+fn secure_endpoint(base_url: &str, suffix: &str) -> Result<Url, AppError> {
+    endpoint(base_url, suffix)
+}
+
 pub fn endpoint(base_url: &str, suffix: &str) -> Result<Url, AppError> {
+    endpoint_with_resolver(base_url, suffix, || {
+        let parsed = Url::parse(base_url.trim())
+            .map_err(|_| std::io::Error::new(std::io::ErrorKind::InvalidInput, "invalid URL"))?;
+        let host = parsed
+            .host_str()
+            .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::InvalidInput, "missing host"))?
+            .to_owned();
+        let port = parsed
+            .port_or_known_default()
+            .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::InvalidInput, "missing port"))?;
+        std::net::ToSocketAddrs::to_socket_addrs(&(host.as_str(), port))
+            .map(|addresses| addresses.map(|address| address.ip()).collect())
+    })
+}
+
+pub fn endpoint_with_resolver<F, E>(
+    base_url: &str,
+    suffix: &str,
+    resolver: F,
+) -> Result<Url, AppError>
+where
+    F: FnOnce() -> Result<Vec<IpAddr>, E>,
+{
     let value = base_url.trim();
     let url =
         Url::parse(value).map_err(|_| AppError::Validation("AI base URL is invalid".into()))?;
@@ -108,6 +157,19 @@ pub fn endpoint(base_url: &str, suffix: &str) -> Result<Url, AppError> {
     {
         return Err(AppError::Validation("AI base URL is invalid".into()));
     }
+    if resolver()
+        .map_err(|_| AppError::Validation("AI base URL could not be resolved".into()))?
+        .into_iter()
+        .any(|address| is_private_ip(&address))
+    {
+        return Err(AppError::Validation(
+            "AI base URL resolves to a private address".into(),
+        ));
+    }
+    join_endpoint(url, suffix)
+}
+
+fn join_endpoint(mut url: Url, suffix: &str) -> Result<Url, AppError> {
     let suffix = suffix.trim_matches('/');
     if suffix.is_empty() {
         return Ok(url);
@@ -116,10 +178,16 @@ pub fn endpoint(base_url: &str, suffix: &str) -> Result<Url, AppError> {
     if existing.ends_with(&format!("/{suffix}")) || existing == suffix {
         return Ok(url);
     }
-    let mut joined = url;
-    let base_path = joined.path().trim_end_matches('/');
-    joined.set_path(&format!("{base_path}/{suffix}"));
-    Ok(joined)
+    let base_path = url.path().trim_end_matches('/');
+    url.set_path(&format!("{base_path}/{suffix}"));
+    Ok(url)
+}
+
+fn is_private_ip(address: &IpAddr) -> bool {
+    match address {
+        IpAddr::V4(address) => is_private_ipv4(*address),
+        IpAddr::V6(address) => is_private_ipv6(*address),
+    }
 }
 
 fn is_private_host(url: &Url) -> bool {

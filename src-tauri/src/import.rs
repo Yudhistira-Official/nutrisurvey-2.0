@@ -22,8 +22,14 @@ pub async fn copy_and_import(
         .unwrap_or("import.csv");
     let destination = storage.app_data_dir().join("imports").join(safe_name);
     tokio::fs::create_dir_all(destination.parent().unwrap()).await?;
-    tokio::fs::write(destination, bytes).await?;
-    import_csv(storage, bytes, safe_name).await
+    tokio::fs::write(&destination, bytes).await?;
+    match import_csv(storage, bytes, safe_name).await {
+        Ok(count) => Ok(count),
+        Err(error) => {
+            let _ = tokio::fs::remove_file(destination).await;
+            Err(error)
+        }
+    }
 }
 
 pub async fn import_csvs(storage: &Storage, resources: &[(&str, &[u8])]) -> Result<u64, AppError> {

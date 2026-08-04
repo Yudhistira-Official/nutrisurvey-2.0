@@ -30,7 +30,7 @@ async function installMockBridge(page: Page) {
         state.calls.push({ command, payloadKeys: payload && typeof payload === 'object' ? Object.keys(payload) : [] });
         state.serializedCalls.push(JSON.stringify({ command, payloadKeys: payload && typeof payload === 'object' ? Object.keys(payload) : [], optionKeys: options ? Object.keys(options) : [] }));
         state.logs.push(`invoke:${command}`);
-        const args = payload as { bytes?: number[] } | Uint8Array | undefined;
+
         if (command === 'ping') return 'pong';
         if (command === 'food_status') return { foodCount: fixtureFoods.length, isReady: true };
         if (command === 'food_search') return fixtureFoods;
@@ -69,13 +69,13 @@ async function installMockBridge(page: Page) {
           delivery: 'saved',
           savedPath: 'acceptance-report.rtf',
         };
-        if (command === 'plugin:dialog|save') return 'fixture.nutri';
-        if (command === 'plugin:dialog|open') return 'fixture.nutri';
-        if (command === 'plugin:fs|write_file') {
-          state.projectBytes = args instanceof Uint8Array ? Array.from(args) : [];
-          return null;
+        if (command === 'project_save') {
+          state.projectBytes = Array.from(new TextEncoder().encode(JSON.stringify(payload?.project)));
+          return true;
         }
-        if (command === 'plugin:fs|read_file') return state.projectBytes.length ? state.projectBytes : [78, 97, 109, 97, 32, 77, 97, 107, 97, 110, 97, 110, 59, 69, 110, 101, 114, 103, 105, 10, 70, 105, 120, 116, 117, 114, 101, 59, 49, 51, 48];
+        if (command === 'project_open') {
+          return JSON.parse(new TextDecoder().decode(Uint8Array.from(state.projectBytes)));
+        }
         throw new Error(`Unexpected command: ${command}`);
       },
     };

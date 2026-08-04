@@ -1,10 +1,10 @@
-use super::{endpoint, parse_response, prompt, send_json};
+use super::{endpoint, endpoint_for_client, parse_response, prompt, send_json};
 use crate::{error::AppError, models::AiRequest};
 use reqwest::{Client, Url};
 use serde::Serialize;
 
 pub(crate) async fn generate(client: &Client, request: &AiRequest) -> Result<String, AppError> {
-    let url = google_endpoint(&request.base_url, &request.model)?;
+    let url = google_endpoint_for_client(&request.base_url, &request.model)?;
     let payload = GooglePayload {
         contents: vec![GoogleContent {
             role: "user",
@@ -25,11 +25,23 @@ pub(crate) async fn generate(client: &Client, request: &AiRequest) -> Result<Str
 
 pub fn google_endpoint(base_url: &str, model: &str) -> Result<Url, AppError> {
     let base = endpoint(base_url, "")?;
+    join_google_endpoint(base, model)
+}
+
+pub fn google_endpoint_for_client(base_url: &str, model: &str) -> Result<Url, AppError> {
+    let base = endpoint_for_client(base_url, "")?;
+    join_google_endpoint(base, model)
+}
+
+fn join_google_endpoint(base: Url, model: &str) -> Result<Url, AppError> {
     let encoded_model = percent_encode(model);
-    endpoint(
-        base.as_str(),
-        &format!("models/{encoded_model}:generateContent"),
-    )
+    join_endpoint_for_client(base, &format!("models/{encoded_model}:generateContent"))
+}
+
+fn join_endpoint_for_client(mut base: Url, suffix: &str) -> Result<Url, AppError> {
+    let base_path = base.path().trim_end_matches('/');
+    base.set_path(&format!("{base_path}/{suffix}"));
+    Ok(base)
 }
 
 fn percent_encode(value: &str) -> String {

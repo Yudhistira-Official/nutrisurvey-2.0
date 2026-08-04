@@ -417,8 +417,12 @@ pub fn validate_selected_path(
 
 pub fn mobile_delivery_error() -> Result<ExportResult, AppError> {
     Err(AppError::Export(
-        "mobile share/document picker unsupported: no Tauri plugin configured".into(),
+        "Ekspor mobile belum didukung: plugin share/document-picker belum tersedia".into(),
     ))
+}
+
+pub fn mobile_delivery_result(_bytes: Vec<u8>) -> Result<ExportResult, AppError> {
+    mobile_delivery_error()
 }
 
 pub fn content_type() -> &'static str {

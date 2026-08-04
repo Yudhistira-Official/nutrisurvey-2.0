@@ -1,4 +1,4 @@
-use super::{endpoint, parse_response, prompt, send_json};
+use super::{endpoint_for_client as endpoint, parse_response, prompt, send_json};
 use crate::{error::AppError, models::AiRequest};
 use reqwest::Client;
 use serde::Serialize;

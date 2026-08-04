@@ -19,9 +19,9 @@ async fn mock_server(
 ) -> (String, tokio::task::JoinHandle<String>, Client) {
     let listener = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
     let port = listener.local_addr().unwrap().port();
-    let url = format!("http://ai.test:{port}");
+    let url = format!("http://example.com:{port}");
     let client = Client::builder()
-        .resolve("ai.test", listener.local_addr().unwrap())
+        .resolve("example.com", listener.local_addr().unwrap())
         .build()
         .unwrap();
     let task = tokio::spawn(async move {
@@ -170,6 +170,31 @@ fn ai_request_debug_redacts_api_key() {
 }
 
 #[test]
+fn hostname_resolution_rejects_any_private_result_before_request() {
+    let safe = ai::endpoint_with_resolver("https://router.test/api", "chat/completions", || {
+        Ok::<Vec<std::net::IpAddr>, std::io::Error>(vec!["93.184.216.34".parse().unwrap()])
+    });
+    assert!(safe.is_ok());
+
+    let unsafe_result =
+        ai::endpoint_with_resolver("https://router.test/api", "chat/completions", || {
+            Ok::<Vec<std::net::IpAddr>, std::io::Error>(vec![
+                "93.184.216.34".parse().unwrap(),
+                "127.0.0.1".parse().unwrap(),
+            ])
+        });
+    assert!(unsafe_result.is_err());
+}
+
+#[test]
+fn hostname_resolution_rejects_unresolved_host() {
+    let result = ai::endpoint_with_resolver("https://router.test", "", || {
+        Err(std::io::Error::new(std::io::ErrorKind::NotFound, "missing"))
+    });
+    assert!(result.is_err());
+}
+
+#[test]
 fn endpoint_validation_rejects_unsafe_urls_and_structurally_joins_paths() {
     for base_url in [
         "https://example.test?token=secret",
@@ -188,16 +213,17 @@ fn endpoint_validation_rejects_unsafe_urls_and_structurally_joins_paths() {
             "accepted {base_url}"
         );
     }
-    let endpoint = ai::endpoint("https://example.test/api/v1/", "messages").unwrap();
+    let endpoint = ai::endpoint_for_client("https://example.test/api/v1/", "messages").unwrap();
     assert_eq!(endpoint.as_str(), "https://example.test/api/v1/messages");
-    let existing = ai::endpoint("https://example.test/api/messages", "messages").unwrap();
+    let existing =
+        ai::endpoint_for_client("https://example.test/api/messages", "messages").unwrap();
     assert_eq!(existing.as_str(), "https://example.test/api/messages");
 }
 
 #[test]
 fn google_model_path_is_url_encoded() {
     assert_eq!(
-        ai::google_endpoint("https://example.test/api", "models/a b/v1")
+        ai::google_endpoint_for_client("https://example.test/api", "models/a b/v1")
             .unwrap()
             .as_str(),
         "https://example.test/api/models/models%2Fa%20b%2Fv1:generateContent"

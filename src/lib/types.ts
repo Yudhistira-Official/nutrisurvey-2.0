@@ -67,7 +67,7 @@ export type ExportResult = {
   filename: string;
   contentType: string;
   bytes: number[];
-  delivery: 'share' | 'saved';
+  delivery: 'saved';
   savedPath?: string | null;
 };
 export type ProjectFile = {
