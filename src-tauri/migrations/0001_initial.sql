@@ -25,6 +25,5 @@ CREATE TABLE IF NOT EXISTS food_nutrients (
 );
 
 CREATE INDEX IF NOT EXISTS idx_foods_normalized_name ON foods(normalized_name);
-CREATE INDEX IF NOT EXISTS idx_nutrients_normalized_name ON nutrients(normalized_name);
 CREATE INDEX IF NOT EXISTS idx_food_nutrients_food_id ON food_nutrients(food_id);
 CREATE INDEX IF NOT EXISTS idx_food_nutrients_nutrient_id ON food_nutrients(nutrient_id);

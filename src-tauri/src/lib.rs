@@ -27,26 +27,207 @@ mod tests {
     }
 
     #[test]
-    fn dto_payload_uses_frontend_keys() {
-        let item = crate::models::MappedMealItem {
-            meal_type: "SARAPAN".into(),
-            requested_keyword: "rice".into(),
-            matched_food_id: 7,
-            matched_food_name: "Rice".into(),
-            suggested_grams: 100,
-            reference_grams: 100.0,
-            calories: 130.0,
-            protein: 2.7,
-            fat: 0.3,
-            carbohydrate: 28.2,
-            nutrients: std::collections::HashMap::new(),
-            reasoning: "match".into(),
-        };
-        let value = serde_json::to_value(item).unwrap();
-        assert_eq!(value["meal_type"], "SARAPAN");
-        assert_eq!(value["requested_keyword"], "rice");
-        assert_eq!(value["matched_food_id"], 7);
-        assert_eq!(value["suggested_grams"], 100);
+    fn database_rows_map_normalized_names_without_api_leakage() {
+        let food = crate::models::Food::from(crate::models::FoodRow {
+            id: 1,
+            name: "Rice".into(),
+            _normalized_name: "rice".into(),
+            brand: None,
+            category: None,
+            serving_size: 100.0,
+            serving_unit: "g".into(),
+            servings_per_container: 1.0,
+        });
+        let nutrient = crate::models::Nutrient::from(crate::models::NutrientRow {
+            id: 2,
+            name: "Calories".into(),
+            _normalized_name: "calories".into(),
+            unit: "kcal".into(),
+        });
+
+        assert_eq!(food.name, "Rice");
+        assert_eq!(nutrient.name, "Calories");
+        assert!(!serde_json::to_value(food)
+            .unwrap()
+            .as_object()
+            .unwrap()
+            .contains_key("normalizedName"));
+        assert!(!serde_json::to_value(nutrient)
+            .unwrap()
+            .as_object()
+            .unwrap()
+            .contains_key("normalizedName"));
+    }
+
+    #[test]
+    fn all_task_two_dtos_use_compatible_json_keys() {
+        let values = [
+            serde_json::to_value(crate::models::Food {
+                id: 1,
+                name: "Rice".into(),
+                brand: None,
+                category: None,
+                serving_size: 100.0,
+                serving_unit: "g".into(),
+                servings_per_container: 1.0,
+            })
+            .unwrap(),
+            serde_json::to_value(crate::models::Nutrient {
+                id: 2,
+                name: "Calories".into(),
+                unit: "kcal".into(),
+            })
+            .unwrap(),
+            serde_json::to_value(crate::models::FoodNutrient {
+                id: 3,
+                food_id: 1,
+                nutrient_id: 2,
+                amount: 130.0,
+            })
+            .unwrap(),
+            serde_json::to_value(crate::models::FoodResult {
+                id: 1,
+                name: "Rice".into(),
+                brand: None,
+                category: None,
+                serving_size: 100.0,
+                serving_unit: "g".into(),
+                servings_per_container: 1.0,
+                nutrients: std::collections::HashMap::from([("Calories".into(), 130.0)]),
+            })
+            .unwrap(),
+            serde_json::to_value(crate::models::NutrientSummary {
+                name: "Calories".into(),
+                unit: "kcal".into(),
+                amount: 130.0,
+            })
+            .unwrap(),
+            serde_json::to_value(crate::models::TdeeRequest {
+                weight_kg: 70.0,
+                height_cm: 175.0,
+                age: 30,
+                gender: "male".into(),
+                activity_factor: 1.2,
+                injury_factor: 1.0,
+                is_manual_factors: false,
+            })
+            .unwrap(),
+            serde_json::to_value(crate::models::TdeeResponse {
+                basal_metabolic_rate: 1600.0,
+                total_daily_energy_expenditure: 1920.0,
+                formula_used: "Mifflin".into(),
+            })
+            .unwrap(),
+            serde_json::to_value(crate::models::RecommendationFilter {
+                nutrient: "Protein".into(),
+                operator: ">=".into(),
+                value: 20.0,
+            })
+            .unwrap(),
+            serde_json::to_value(crate::models::AiConfig {
+                provider: "openai".into(),
+                model: "gpt".into(),
+                api_key: "secret".into(),
+                base_url: "https://example.test".into(),
+            })
+            .unwrap(),
+            serde_json::to_value(crate::models::MappedMealItem {
+                meal_type: "SARAPAN".into(),
+                requested_keyword: "rice".into(),
+                matched_food_id: 7,
+                matched_food_name: "Rice".into(),
+                suggested_grams: 100,
+                reference_grams: 100.0,
+                calories: 130.0,
+                protein: 2.7,
+                fat: 0.3,
+                carbohydrate: 28.2,
+                nutrients: std::collections::HashMap::new(),
+                reasoning: "match".into(),
+            })
+            .unwrap(),
+        ];
+        let expected_keys = [
+            vec![
+                "id",
+                "name",
+                "brand",
+                "category",
+                "servingSize",
+                "servingUnit",
+                "servingsPerContainer",
+            ],
+            vec!["id", "name", "unit"],
+            vec!["id", "foodId", "nutrientId", "amount"],
+            vec![
+                "id",
+                "name",
+                "brand",
+                "category",
+                "servingSize",
+                "servingUnit",
+                "servingsPerContainer",
+                "nutrients",
+            ],
+            vec!["name", "unit", "amount"],
+            vec![
+                "weightKg",
+                "heightCm",
+                "age",
+                "gender",
+                "activityFactor",
+                "injuryFactor",
+                "isManualFactors",
+            ],
+            vec![
+                "basalMetabolicRate",
+                "totalDailyEnergyExpenditure",
+                "formulaUsed",
+            ],
+            vec!["nutrient", "operator", "value"],
+            vec!["provider", "model", "apiKey", "baseUrl"],
+            vec![
+                "meal_type",
+                "requested_keyword",
+                "matched_food_id",
+                "matched_food_name",
+                "suggested_grams",
+                "reference_grams",
+                "calories",
+                "protein",
+                "fat",
+                "carbohydrate",
+                "nutrients",
+                "reasoning",
+            ],
+        ];
+        for (value, keys) in values.into_iter().zip(expected_keys) {
+            let actual = value
+                .as_object()
+                .unwrap()
+                .keys()
+                .map(String::as_str)
+                .collect::<std::collections::BTreeSet<_>>();
+            let expected = keys.into_iter().collect::<std::collections::BTreeSet<_>>();
+            assert_eq!(actual, expected);
+        }
+    }
+
+    #[test]
+    fn app_errors_use_compatible_json_shape() {
+        for error in [
+            crate::error::AppError::Validation("bad input".into()),
+            crate::error::AppError::Database("db failed".into()),
+            crate::error::AppError::Import("import failed".into()),
+            crate::error::AppError::Ai("ai failed".into()),
+            crate::error::AppError::Export("export failed".into()),
+            crate::error::AppError::Io("io failed".into()),
+        ] {
+            let value = serde_json::to_value(error).unwrap();
+            assert_eq!(value.as_object().unwrap().len(), 2);
+            assert!(value.get("kind").unwrap().is_string());
+            assert!(value.get("message").unwrap().is_string());
+        }
     }
 }
 
@@ -121,18 +302,26 @@ mod storage_tests {
             .execute(storage.pool())
             .await
             .unwrap();
+        assert!(sqlx::query("INSERT INTO nutrients (name, normalized_name, unit) VALUES ('Energy', 'calories', 'kcal')")
+            .execute(storage.pool())
+            .await
+            .is_err());
         sqlx::query("INSERT INTO food_nutrients (food_id, nutrient_id, amount) VALUES (1, 1, 130)")
             .execute(storage.pool())
             .await
             .unwrap();
-        assert!(sqlx::query("INSERT INTO food_nutrients (food_id, nutrient_id, amount) VALUES (1, 1, 130)")
-            .execute(storage.pool())
-            .await
-            .is_err());
-        assert!(sqlx::query("INSERT INTO food_nutrients (food_id, nutrient_id, amount) VALUES (99, 1, 130)")
-            .execute(storage.pool())
-            .await
-            .is_err());
+        assert!(sqlx::query(
+            "INSERT INTO food_nutrients (food_id, nutrient_id, amount) VALUES (1, 1, 130)"
+        )
+        .execute(storage.pool())
+        .await
+        .is_err());
+        assert!(sqlx::query(
+            "INSERT INTO food_nutrients (food_id, nutrient_id, amount) VALUES (99, 1, 130)"
+        )
+        .execute(storage.pool())
+        .await
+        .is_err());
         let _ = std::fs::remove_dir_all(path.parent().unwrap());
     }
 }

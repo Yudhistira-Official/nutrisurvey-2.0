@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Food {
     pub id: i64,
@@ -13,12 +13,70 @@ pub struct Food {
     pub servings_per_container: f64,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub(crate) struct FoodRow {
+    pub id: i64,
+    pub name: String,
+    #[sqlx(rename = "normalized_name")]
+    pub _normalized_name: String,
+    pub brand: Option<String>,
+    pub category: Option<String>,
+    pub serving_size: f64,
+    pub serving_unit: String,
+    pub servings_per_container: f64,
+}
+
+impl From<FoodRow> for Food {
+    fn from(row: FoodRow) -> Self {
+        let FoodRow {
+            id,
+            name,
+            _normalized_name: _,
+            brand,
+            category,
+            serving_size,
+            serving_unit,
+            servings_per_container,
+        } = row;
+        Self {
+            id,
+            name,
+            brand,
+            category,
+            serving_size,
+            serving_unit,
+            servings_per_container,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Nutrient {
     pub id: i64,
     pub name: String,
     pub unit: String,
+}
+
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub(crate) struct NutrientRow {
+    pub id: i64,
+    pub name: String,
+    #[sqlx(rename = "normalized_name")]
+    pub _normalized_name: String,
+    pub unit: String,
+}
+
+impl From<NutrientRow> for Nutrient {
+    fn from(row: NutrientRow) -> Self {
+        let NutrientRow {
+            id,
+            name,
+            _normalized_name: _,
+            unit,
+        } = row;
+        Self { id, name, unit }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
