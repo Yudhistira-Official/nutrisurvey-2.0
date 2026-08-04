@@ -11,3 +11,4 @@ Backend/bin/
 Backend/obj/
 Installer/
 Setup.exe
+.worktrees/
