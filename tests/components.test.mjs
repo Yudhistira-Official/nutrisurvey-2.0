@@ -45,6 +45,14 @@ test('real .nutri file write, read, and re-import preserves project data', () =>
   }
 });
 
+test('UI project flow uses production serialization and native filesystem abstraction', () => {
+  const page = readFileSync(new URL('../src/app/page.tsx', import.meta.url), 'utf8');
+  assert.match(page, /serializeProject\(\{ foods, meals, targets \}\)/);
+  assert.match(page, /parseProject\(new TextDecoder\(\)\.decode\(await readFile\(path\)\)\)/);
+  assert.match(page, /writeFile\(path, new TextEncoder\(\)\.encode\(/);
+  assert.match(page, /readFile\(path\)/);
+});
+
 test('search adapter forwards query and limit', async () => {
   const calls = [];
   const adapters = createCommandAdapters(async (command, payload) => { calls.push({ command, payload }); return []; });

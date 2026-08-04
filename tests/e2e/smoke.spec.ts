@@ -16,16 +16,19 @@ const foods = [{
 async function installMockBridge(page: Page) {
   await page.addInitScript(({ fixtureFoods, secret }) => {
     const state = {
-      calls: [] as Array<{ command: string; payload: unknown }>,
+      calls: [] as Array<{ command: string; payloadKeys: string[] }>,
       serializedCalls: [] as string[],
       logs: [] as string[],
+      rawSecretSeenOnlyInMemory: false,
       projectBytes: [] as number[],
       importedBytes: [] as number[],
     };
     const bridge = {
       invoke: async (command: string, payload?: { request?: unknown; bytes?: number[] } | Uint8Array, options?: { headers?: Record<string, string> }) => {
-        state.calls.push({ command, payload: { payload, options } });
-        state.serializedCalls.push(JSON.stringify({ command, payload, options }, (key, value) => key === 'apiKey' ? '[REDACTED]' : value));
+        const rawInvoke = JSON.stringify({ command, payload, options });
+        if (rawInvoke.includes(secret)) state.rawSecretSeenOnlyInMemory = true;
+        state.calls.push({ command, payloadKeys: payload && typeof payload === 'object' ? Object.keys(payload) : [] });
+        state.serializedCalls.push(JSON.stringify({ command, payloadKeys: payload && typeof payload === 'object' ? Object.keys(payload) : [], optionKeys: options ? Object.keys(options) : [] }));
         state.logs.push(`invoke:${command}`);
         const args = payload as { bytes?: number[] } | Uint8Array | undefined;
         if (command === 'ping') return 'pong';
@@ -119,7 +122,7 @@ test('native UI smoke covers readiness, search, recommendations, import, roundtr
 
   await page.getByRole('button', { name: 'Word Report' }).click();
   await expect(page.getByText(/Laporan tersimpan/)).toBeVisible();
-  const smokeState = await page.evaluate(() => (window as Window & { __NUTRISURVEY_SMOKE__?: { state: { calls: Array<{ command: string; payload: unknown }>; serializedCalls: string[]; logs: string[]; projectBytes: number[]; importedBytes: number[] } } }).__NUTRISURVEY_SMOKE__?.state);
+  const smokeState = await page.evaluate(() => (window as Window & { __NUTRISURVEY_SMOKE__?: { state: { calls: Array<{ command: string; payloadKeys: string[] }>; serializedCalls: string[]; logs: string[]; rawSecretSeenOnlyInMemory: boolean; projectBytes: number[]; importedBytes: number[] } } }).__NUTRISURVEY_SMOKE__?.state);
   expect(smokeState?.calls.map(call => call.command)).toEqual(expect.arrayContaining([
     'food_status',
     'food_search',
@@ -133,6 +136,8 @@ test('native UI smoke covers readiness, search, recommendations, import, roundtr
   expect(smokeState?.importedBytes.length).toBeGreaterThan(0);
   expect(new TextDecoder().decode(Uint8Array.from(smokeState?.projectBytes || []))).not.toContain(mockedSecret);
   expect(new TextDecoder().decode(Uint8Array.from(smokeState?.importedBytes || []))).not.toContain(mockedSecret);
+  expect(smokeState?.rawSecretSeenOnlyInMemory).toBe(true);
+  expect(JSON.stringify(smokeState?.calls || [])).not.toContain(mockedSecret);
   expect(JSON.stringify(smokeState?.serializedCalls || [])).not.toContain(mockedSecret);
   expect(JSON.stringify(smokeState?.logs || [])).not.toContain(mockedSecret);
   const bundleScan = await page.evaluate(async secret => {

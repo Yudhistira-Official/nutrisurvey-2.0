@@ -1,28 +1,23 @@
 # Task 9 report
 
-## Acceptance coverage
+## Evidence
 
-- Rust acceptance fixtures cover readiness, bundled seeding from representative standard and scraper CSV resources, search, recommendations, TDEE, mocked AI mapping, API-key redaction, `.nutri` file write/read/re-import, Unicode RTF output, and artifact secret scans.
-- Frontend smoke covers readiness, food search, recommendations/add-to-dashboard, CSV import result, real page save/load project flow, TDEE, mocked AI implementation, and report export outcome. Tauri dialog/filesystem calls are mocked only at the browser boundary.
-- CI runs frontend smoke and uses `cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check`.
+- Frontend: `npm run lint`, `npm run typecheck`, `npm test` (13 tests), and `npm run build` pass.
+- Rust: `cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check`, clippy, and `cargo test --manifest-path src-tauri/Cargo.toml` pass. Full suite: 62 tests; acceptance: 5 tests.
+- Acceptance uses repository root from `CARGO_MANIFEST_DIR`, asserts scanned artifact/resource directories exist, scans SQLite/report/static bundle/resources, and exercises configured resource discovery with real temporary standard/scraper CSV files.
+- Native project acceptance uses production `src-tauri/src/project.rs` save/load abstraction with a real temporary `.nutri` file. Frontend contract coverage verifies `src/app/page.tsx` calls production `serializeProject`/`parseProject` with Tauri filesystem `writeFile`/`readFile`.
+- Smoke test records raw invoke data only transiently to prove mocked API key is seen in-memory, retains only payload keys/redacted diagnostics, scans serialized calls/log state/project/import bytes, and scans loaded `_next` bundle resources. Raw secret is asserted absent from all retained/output surfaces.
+- CI Rust job builds static frontend before Rust artifact scans and uses correct Cargo manifest path for fmt.
 
-## Verification status
+## Unresolved gates
 
-Checks rerun after review fixes: Rust acceptance 3/3, full Rust suite 60 tests, clippy, fmt, frontend tests 12/12, lint, typecheck, and static build passed. Packaged build was attempted and stopped at the local `linuxdeploy` blocker; it is not a passing packaged-build gate.
-
-Playwright smoke remains environment-dependent: local Chromium executable was unavailable and browser download timed out. CI provisions Chromium with `npx playwright install --with-deps chromium`.
-
-Linux packaged bundle remains blocked locally by missing/incomplete `linuxdeploy`. Android build was not run locally; Rust Android targets and `adb` availability do not prove Tauri Android packaging. iOS build was not run because Linux has no Xcode/macOS toolchain. Windows/macOS packaged-start checks remain CI-only.
+- `npm run test:e2e`: blocked locally because Playwright Chromium executable is unavailable; browser download previously timed out. CI installs Chromium with `npx playwright install --with-deps chromium`.
+- `npm run tauri:build`: release binary plus `.deb`/`.rpm` packaging reach AppImage, then fail because local `linuxdeploy` is unavailable/incomplete. Packaged-start gate is not passed.
+- Android packaging was not run locally. Rust Android targets/`adb` availability are not Android Tauri build evidence; CI Android job remains required.
+- iOS packaging was not run on Linux because Xcode/macOS toolchain is unavailable; CI macOS job remains required.
+- Windows/macOS desktop packaging and clean packaged-start checks remain CI-only.
+- No legacy migration files are retired until all listed gates pass with evidence.
 
 ## Gate decision
 
-Legacy `Backend/`, `Frontend/`, `Assets/RUN.bat`, `Assets/NutriSurvey.vbs`, and `Assets/loading.hta` remain preserved. Retirement gate is closed until smoke, packaged-start, desktop bundle, Android, iOS, and secret-scan gates all pass with evidence.
-
-## Review follow-up
-
-- Acceptance now derives repository root from `CARGO_MANIFEST_DIR`; artifact/resource paths are not dependent on test working directory, and every scanned directory is asserted present before traversal.
-- `project::save` and `project::load` provide production Rust `.nutri` serialization/file handling. Acceptance writes a real temp `.nutri`, reloads it through the production loader, and compares the complete typed project.
-- `seed_configured_resources` opens an explicit configured resource directory, discovers sorted CSV files, imports real representative standard/scraper fixtures, verifies readiness and idempotence, and cleans up temp app-data/resources.
-- Smoke records serialized invoke calls/log state, checks project/import byte payloads for secrets, and fetches every loaded `_next` resource to scan non-empty bundle contents for the mocked secret.
-- Latest local evidence: Rust acceptance 5/5, full Rust suite 62 tests, clippy/fmt, frontend tests 12/12, lint/typecheck/build passed. Playwright still lacks Chromium; packaged Linux build still stops at `linuxdeploy`; mobile/other desktop gates remain CI-only.
-- Rust CI now installs Node, runs the static frontend build before Rust tests, and then runs `cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check`; this ensures repo-root `out/` artifact scans have configured inputs.
+Preserve `Backend/`, `Frontend/`, `Assets/RUN.bat`, `Assets/NutriSurvey.vbs`, and `Assets/loading.hta`.
