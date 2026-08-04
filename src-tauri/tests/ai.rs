@@ -1,4 +1,5 @@
 use nutrisurvey_lib::{ai, models::AiRequest, storage::Storage};
+use reqwest::Client;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
@@ -12,9 +13,17 @@ async fn storage() -> Storage {
     Storage::open_path(&path).await.unwrap()
 }
 
-async fn mock_server(status: u16, body: &'static str) -> (String, tokio::task::JoinHandle<String>) {
+async fn mock_server(
+    status: u16,
+    body: &'static str,
+) -> (String, tokio::task::JoinHandle<String>, Client) {
     let listener = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
-    let url = format!("http://{}", listener.local_addr().unwrap());
+    let port = listener.local_addr().unwrap().port();
+    let url = format!("http://ai.test:{port}");
+    let client = Client::builder()
+        .resolve("ai.test", listener.local_addr().unwrap())
+        .build()
+        .unwrap();
     let task = tokio::spawn(async move {
         let (mut socket, _) = listener.accept().await.unwrap();
         let mut request = Vec::new();
@@ -36,7 +45,7 @@ async fn mock_server(status: u16, body: &'static str) -> (String, tokio::task::J
         socket.write_all(response.as_bytes()).await.unwrap();
         String::from_utf8(request).unwrap()
     });
-    (url, task)
+    (url, task, client)
 }
 
 fn request(base_url: String, provider: &str) -> AiRequest {
@@ -58,8 +67,8 @@ const PLAN: &str = r#"{"meal_plan":[{"meal_type":"Sarapan","food_keyword":"Nasi"
 #[tokio::test]
 async fn openai_compatible_provider_posts_schema_prompt_and_parses_plan() {
     let storage = storage().await;
-    let (url, task) = mock_server(200, r#"{"choices":[{"message":{"content":"{\"meal_plan\":[{\"meal_type\":\"Sarapan\",\"food_keyword\":\"Nasi\",\"suggested_grams\":100,\"reasoning\":\"seimbang\"}]}"}}]}"#).await;
-    let result = ai::generate_menu(&storage, request(url, "openai")).await;
+    let (url, task, client) = mock_server(200, r#"{"choices":[{"message":{"content":"{\"meal_plan\":[{\"meal_type\":\"Sarapan\",\"food_keyword\":\"Nasi\",\"suggested_grams\":100,\"reasoning\":\"seimbang\"}]}"}}]}"#).await;
+    let result = ai::generate_menu_with_client(&storage, request(url, "openai"), &client).await;
     assert!(result.is_ok());
     let raw_request = task.await.unwrap();
     assert!(raw_request.contains("/chat/completions"));
@@ -72,8 +81,8 @@ async fn google_provider_uses_supported_key_header_and_fenced_json() {
     let storage = storage().await;
     let body =
         r#"{"candidates":[{"content":{"parts":[{"text":"```json\n{\"meal_plan\":[]}\n```"}]}}]}"#;
-    let (url, task) = mock_server(200, body).await;
-    let result = ai::generate_menu(&storage, request(url, "google")).await;
+    let (url, task, client) = mock_server(200, body).await;
+    let result = ai::generate_menu_with_client(&storage, request(url, "google"), &client).await;
     assert!(result.unwrap().is_empty());
     let raw_request = task.await.unwrap();
     assert!(raw_request.contains("/models/test-model:generateContent"));
@@ -108,10 +117,12 @@ async fn generate_menu_normalizes_tdee_and_drops_items_below_25_grams() {
         }
     }
     let response = r#"{"choices":[{"message":{"content":"{\"meal_plan\":[{\"meal_type\":\"Sarapan\",\"food_keyword\":\"Nasi\",\"suggested_grams\":100,\"reasoning\":\"utama\"},{\"meal_type\":\"Sarapan\",\"food_keyword\":\"Telur\",\"suggested_grams\":10,\"reasoning\":\"kecil\"}]}"}}]}"#;
-    let (url, task) = mock_server(200, response).await;
+    let (url, task, client) = mock_server(200, response).await;
     let mut request = request(url, "openai");
     request.target_tdee = 210;
-    let mapped = ai::generate_menu(&storage, request).await.unwrap();
+    let mapped = ai::generate_menu_with_client(&storage, request, &client)
+        .await
+        .unwrap();
     assert_eq!(mapped.len(), 1);
     assert_eq!(mapped[0].suggested_grams, 191);
     assert_eq!(mapped[0].calories, 191.0);
@@ -123,8 +134,8 @@ async fn anthropic_provider_parses_response() {
     let storage = storage().await;
     let body = format!(r#"{{"content":[{{"text":{PLAN:?}}}]}}"#);
     let body: &'static str = Box::leak(body.into_boxed_str());
-    let (url, task) = mock_server(200, body).await;
-    let result = ai::generate_menu(&storage, request(url, "anthropic")).await;
+    let (url, task, client) = mock_server(200, body).await;
+    let result = ai::generate_menu_with_client(&storage, request(url, "anthropic"), &client).await;
     assert!(result.is_ok());
     assert!(task.await.unwrap().contains("/messages"));
 }
@@ -133,16 +144,17 @@ async fn anthropic_provider_parses_response() {
 async fn malformed_json_missing_fields_and_http_errors_are_redacted() {
     let storage = storage().await;
     for body in ["not-json", r#"{"choices":[]}"#] {
-        let (url, task) = mock_server(200, Box::leak(body.to_string().into_boxed_str())).await;
-        let error = ai::generate_menu(&storage, request(url, "openrouter"))
+        let (url, task, client) =
+            mock_server(200, Box::leak(body.to_string().into_boxed_str())).await;
+        let error = ai::generate_menu_with_client(&storage, request(url, "openrouter"), &client)
             .await
             .unwrap_err()
             .to_string();
         assert!(!error.contains("super-secret-key"));
         task.await.unwrap();
     }
-    let (url, task) = mock_server(500, r#"{"error":"super-secret-key"}"#).await;
-    let error = ai::generate_menu(&storage, request(url, "custom"))
+    let (url, task, client) = mock_server(500, r#"{"error":"super-secret-key"}"#).await;
+    let error = ai::generate_menu_with_client(&storage, request(url, "custom"), &client)
         .await
         .unwrap_err()
         .to_string();
@@ -166,6 +178,10 @@ fn endpoint_validation_rejects_unsafe_urls_and_structurally_joins_paths() {
         "http://10.0.0.1",
         "http://192.168.1.1",
         "http://169.254.169.254",
+        "http://127.0.0.1",
+        "http://127.42.0.1:8080/path",
+        "http://[::1]/api",
+        "http://[::ffff:127.0.0.1]/api",
     ] {
         assert!(
             ai::endpoint(base_url, "messages").is_err(),

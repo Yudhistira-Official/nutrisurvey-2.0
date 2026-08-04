@@ -40,3 +40,16 @@
 - `cargo test --manifest-path src-tauri/Cargo.toml ai` — passed
 - `cargo test --manifest-path src-tauri/Cargo.toml` — 38 passed
 - `cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets --all-features -- -D warnings` — passed
+
+## Loopback Review Fix
+
+- Rejected IPv4 loopback `127.0.0.0/8`, IPv6 `::1`, and IPv4-mapped IPv6 loopback endpoints while preserving private, link-local, metadata, and reserved-network rejection.
+- Added URL regression coverage for all loopback forms.
+- Added injected HTTP client path for mock tests so production URL validation remains strict.
+
+## Loopback Verification
+
+- `cargo fmt --manifest-path src-tauri/Cargo.toml -- --check` — passed
+- `cargo test --manifest-path src-tauri/Cargo.toml ai` — passed
+- `cargo test --manifest-path src-tauri/Cargo.toml` — 38 passed
+- `cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets --all-features -- -D warnings` — passed

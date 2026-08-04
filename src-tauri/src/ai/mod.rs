@@ -22,15 +22,23 @@ pub async fn generate_menu(
     storage: &Storage,
     request: AiRequest,
 ) -> Result<Vec<MappedMealItem>, AppError> {
-    validate_request(&request)?;
     let client = Client::builder()
         .timeout(REQUEST_TIMEOUT)
         .build()
         .map_err(|_| AppError::Ai("unable to configure AI client".into()))?;
+    generate_menu_with_client(storage, request, &client).await
+}
+
+pub async fn generate_menu_with_client(
+    storage: &Storage,
+    request: AiRequest,
+    client: &Client,
+) -> Result<Vec<MappedMealItem>, AppError> {
+    validate_request(&request)?;
     let content = match request.provider.trim().to_ascii_lowercase().as_str() {
-        "google" | "gemini" => google::generate(&client, &request).await?,
-        "anthropic" | "claude" => anthropic::generate(&client, &request).await?,
-        "openai" | "openrouter" | "custom" => openai::generate(&client, &request).await?,
+        "google" | "gemini" => google::generate(client, &request).await?,
+        "anthropic" | "claude" => anthropic::generate(client, &request).await?,
+        "openai" | "openrouter" | "custom" => openai::generate(client, &request).await?,
         _ => return Err(AppError::Validation("unsupported AI provider".into())),
     };
     let plan = prompt::parse_meal_plan(&content)?;
@@ -118,6 +126,7 @@ fn is_private_host(url: &Url) -> bool {
     let Some(host) = url.host_str() else {
         return true;
     };
+    let host = host.trim_start_matches('[').trim_end_matches(']');
     if let Ok(address) = host.parse::<IpAddr>() {
         return match address {
             IpAddr::V4(address) => is_private_ipv4(address),
@@ -130,6 +139,7 @@ fn is_private_host(url: &Url) -> bool {
 
 fn is_private_ipv4(address: Ipv4Addr) -> bool {
     address.is_private()
+        || address.is_loopback()
         || address.is_link_local()
         || address.is_unspecified()
         || address.octets()[0] == 100 && (64..=127).contains(&address.octets()[1])
@@ -139,7 +149,9 @@ fn is_private_ipv4(address: Ipv4Addr) -> bool {
 }
 
 fn is_private_ipv6(address: Ipv6Addr) -> bool {
-    address.is_unspecified()
+    address.to_ipv4_mapped().is_some_and(is_private_ipv4)
+        || address.is_loopback()
+        || address.is_unspecified()
         || (address.segments()[0] & 0xfe00) == 0xfc00
         || (address.segments()[0] & 0xffc0) == 0xfe80
 }
