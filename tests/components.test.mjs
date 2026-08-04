@@ -2,6 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { calculateTotals, calculateMacroTargets, implementAiRows, moveFoodToMeal, parseProject, serializeProject } from '../src/lib/types.ts';
 import { createCommandAdapters } from '../src/lib/commands.ts';
+import { classifyUiError } from '../src/lib/types.ts';
+import { readFileSync } from 'node:fs';
 
 test('dashboard totals preserve serving scaling and targets', () => {
   const foods = [{
@@ -55,4 +57,18 @@ test('report adapter invokes export command', async () => {
   const adapters = createCommandAdapters(async (command, payload) => { calls.push({ command, payload }); return { filename: 'report.rtf' }; });
   await adapters.exportToWord({ foods: [], mealTimes: [], targets: { kcal: 0, carbs: 0, protein: 0, fat: 0 } });
   assert.equal(calls[0].command, 'export_word');
+});
+
+test('native rejection paths become safe user messages', () => {
+  assert.equal(classifyUiError({ kind: 'Export', message: 'cancelled' }, 'Export'), 'Ekspor dibatalkan');
+  assert.equal(classifyUiError({ kind: 'Validation', message: 'bad data' }, 'Export'), 'Data tidak valid');
+  assert.equal(classifyUiError({ kind: 'Io', message: 'write failed' }, 'Export'), 'Operasi file gagal');
+});
+
+test('responsive stylesheet defines mobile sidebar and grid layout', () => {
+  const css = readFileSync(new URL('../src/styles/globals.css', import.meta.url), 'utf8');
+  assert.match(css, /@media\s*\(max-width:\s*900px\)/);
+  assert.match(css, /\.sidebar[^}]*width:100%/);
+  assert.match(css, /\.dashboard-grid[^}]*grid-template-columns:1fr/);
+  assert.match(css, /\.ai-grid[^}]*grid-template-columns:1fr/);
 });

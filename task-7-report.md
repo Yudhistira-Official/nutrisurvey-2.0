@@ -1,18 +1,15 @@
 
-## Review findings resolved
+## Remaining review findings resolved
 
-- Restored HTML5 meal drag/drop; dropping food updates persisted `mealTime` through shared state and `.nutri` serialization.
-- Added `isManualFactors` to typed TDEE request and native invoke payload.
-- Save/open/CSV import/report actions now distinguish cancellation, native errors, validation errors, and successful completion without mutating state on invalid import.
-- Deep `.nutri` v1 validation now checks food records, meal records, meal references, nutrient maps, targets, and finite numeric values before state update.
-- Added native CSV dialog/read/import action to navigation.
-- Added behavior coverage for search, TDEE validation, recommendation add/move, AI preview implementation, and report invocation; suite now has 9 passing tests.
-- Made npm test perform clean-tree TypeScript validation before Node tests.
-- Removed desktop `minWidth` restriction for mobile-safe resizing.
+- Added explicit responsive CSS breakpoints for mobile sidebar navigation, stacked dashboard/AI grids, narrow cards/tables, compact controls, and full-width mobile report action.
+- Food search now preserves loading state and surfaces safe rejected-command messages without leaking native errors.
+- TDEE calculator now preserves loading state, disables duplicate submission, and surfaces validation/native rejection messages safely.
+- Report actions now distinguish cancellation, validation, file/native failure, and generic export failure; loading state remains visible during invocation.
+- Added tests for rejection-message classification and mobile stylesheet layout selectors.
 
-## Final review verification
+## Final verification
 
-- `npm test` passed: 9 tests.
+- `npm test` passed: 11 tests.
 - `rm -rf .next && npm run typecheck` passed.
 - `npm run build` passed with static `/` and `/_not-found` routes.
 - `cargo check --manifest-path src-tauri/Cargo.toml` passed.

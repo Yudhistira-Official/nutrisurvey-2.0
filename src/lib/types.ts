@@ -154,6 +154,18 @@ export function parseProject(value: string): ProjectFile {
   return { version: 1, foods: project.foods, meals: project.meals, targets: project.targets };
 }
 
+export function classifyUiError(error: unknown, operation: 'Export' | 'Import' | 'Search' | 'Tdee' = 'Export'): string {
+  const value = error && typeof error === 'object' ? error as { kind?: unknown; message?: unknown } : {};
+  const kind = String(value.kind || '').toLowerCase();
+  const message = String(value.message || '').toLowerCase();
+  if (kind.includes('validation') || message.includes('valid')) return 'Data tidak valid';
+  if (kind.includes('cancel') || message.includes('cancel')) return operation === 'Export' ? 'Ekspor dibatalkan' : 'Operasi dibatalkan';
+  if (kind.includes('io') || kind.includes('export') || kind.includes('import') || message.includes('file') || message.includes('write')) return 'Operasi file gagal';
+  if (operation === 'Search') return 'Gagal mencari makanan';
+  if (operation === 'Tdee') return 'Gagal menghitung TDEE';
+  return operation === 'Import' ? 'Gagal impor data' : 'Gagal ekspor Word';
+}
+
 export function calculateMacroTargets(response: Pick<TdeeResponse, 'totalDailyEnergyExpenditure'>, percentages: { carbs: number; protein: number; fat: number }): Targets | null {
   if (![percentages.carbs, percentages.protein, percentages.fat].every(finite) || Math.abs(percentages.carbs + percentages.protein + percentages.fat - 100) >= 0.1) return null;
   const kcal = response.totalDailyEnergyExpenditure;
