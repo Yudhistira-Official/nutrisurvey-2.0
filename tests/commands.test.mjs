@@ -1,10 +1,33 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
+import { createCommandInvoker } from '../src/lib/commands.ts';
 
-const commands = await readFile(new URL('../src/lib/commands.ts', import.meta.url), 'utf8');
+test('command invoker forwards named payload to Tauri invoke', async () => {
+  const calls = [];
+  const invoke = async (command, payload) => {
+    calls.push({ command, payload });
+    return 'pong';
+  };
+  const invokeCommand = createCommandInvoker(invoke);
 
- test('frontend command boundary delegates to Tauri invoke', () => {
-  assert.match(commands, /export function invokeCommand<T>/);
-  assert.match(commands, /invoke<T>\(command/);
+  const result = await invokeCommand('calculate', { grams: 125, unit: 'g' });
+
+  assert.equal(result, 'pong');
+  assert.deepEqual(calls, [
+    { command: 'calculate', payload: { grams: 125, unit: 'g' } },
+  ]);
+});
+
+test('command invoker supports commands without arguments', async () => {
+  const calls = [];
+  const invoke = async (command, payload) => {
+    calls.push({ command, payload });
+    return 'pong';
+  };
+  const invokeCommand = createCommandInvoker(invoke);
+
+  const result = await invokeCommand('ping');
+
+  assert.equal(result, 'pong');
+  assert.deepEqual(calls, [{ command: 'ping', payload: undefined }]);
 });
