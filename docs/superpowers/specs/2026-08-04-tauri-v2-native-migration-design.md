@@ -34,11 +34,11 @@ Rust uses an `AppError` enum with user-safe serialized categories for validation
 
 AI provider requests originate in Rust. BYOK keys are held only in request memory, never persisted, logged, or put in URLs. Provider adapters support OpenRouter, OpenAI, Google Gemini, Anthropic, and custom OpenAI-compatible routers. Responses are schema-validated and mapped against the local SQLite food database before display.
 
-Tauri capabilities use least privilege. File selection and writes require explicit user interaction and scoped paths. No arbitrary shell execution is exposed to the frontend.
+Tauri capabilities use least privilege. File selection and writes require explicit user interaction and scoped paths. Desktop `.nutri` project save/open is implemented by Rust commands consuming native-dialog-selected paths; frontend does not receive arbitrary filesystem scope. No arbitrary shell execution is exposed to the frontend.
 
 ## Native capabilities
 
-Use Tauri v2 plugins where needed for filesystem, dialog, notification, updater, and shell capabilities. Export uses a save dialog. Mobile behavior must degrade cleanly where desktop-only file semantics differ; sharing or document picker integration is used where supported.
+Use Tauri v2 plugins where needed for filesystem and dialog capabilities. Desktop export uses a save dialog. No compatible share/document-picker plugin is present in current dependencies, so mobile report/project file delivery returns explicit unsupported errors and UI/docs make no parity claim until a reviewed plugin is added.
 
 ## Data compatibility
 
@@ -46,7 +46,7 @@ Preserve existing CSV formats, food fields, nutrient fields, AI meal behavior, f
 
 ## Testing
 
-Rust unit tests cover TDEE, nutrient calculations, meal mapping, AI scaling, and CSV parsing. SQLite integration tests cover schema, seed/import, search, and recommendations. Command tests cover DTO serialization and error mapping. Frontend tests cover invoke adapters, state transitions, and primary forms. CI builds and tests desktop targets plus mobile targets where toolchains are available.
+Rust unit tests cover TDEE, nutrient calculations, meal mapping, AI scaling, and CSV parsing. SQLite integration tests cover schema, seed/import, search, and recommendations. Command tests cover DTO serialization and error mapping. Frontend tests cover invoke adapters, state transitions, and primary forms. Acceptance smoke builds static `out/` as its web-server prerequisite and uses repository-anchored paths. Empty query behavior is intentional: Rust API returns alphabetical first five for compatibility, while UI waits for two characters to avoid noisy modal results. CI builds and tests desktop targets plus mobile targets where toolchains are available.
 
 ## Delivery stages
 

@@ -1,0 +1,40 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "NutriSurvey",
+  "version": "0.1.0",
+  "identifier": "com.nutrisurvey.desktop",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../out",
+    "devUrl": "http://localhost:3000"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "NutriSurvey",
+        "width": 1280,
+        "height": 800,
+        "minHeight": 560,
+        "resizable": true
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; connect-src 'self' ipc: http://ipc.localhost; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; font-src 'self' data:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "resources": [
+      "../DatabaseMakanan/*.csv",
+      "../Assets/template.rtf"
+    ],
+    "icon": ["icons/icon.png"],
+    "category": "Utility",
+    "shortDescription": "Nutrition analysis and meal planning",
+    "longDescription": "Native nutrition analysis, food search, meal planning, and report export.",
+    "copyright": "NutriSurvey contributors",
+    "createUpdaterArtifacts": false
+  }
+}

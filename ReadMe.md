@@ -1,86 +1,85 @@
 # NutriSurvey 2.0
 
-NutriSurvey 2.0 adalah aplikasi analisis nutrisi modern berbasis web yang dirancang untuk menggantikan aplikasi legacy NutriSurvey.de. Aplikasi ini memungkinkan pengguna untuk melacak asupan makanan, menghitung target TDEE (Total Daily Energy Expenditure), menganalisis lebih dari 50 jenis mikronutrien, dan membuat rencana makan berbantuan AI yang divalidasi terhadap database makanan lokal.
+NutriSurvey is a native Tauri v2 nutrition analysis application. It uses a Next.js static frontend and Rust commands for food search, nutrition calculations, AI meal planning, SQLite storage, CSV import, and RTF report export.
 
-## Struktur Proyek
+## Features
 
-- **`/Backend`**: Web API menggunakan ASP.NET Core 8.0.
-  - **Controllers**: Endpoint untuk pencarian makanan, rekomendasi, kalkulasi nutrisi, dan AI Meal Planner.
-  - **Models**: Struktur data untuk Food, Nutrient, FoodNutrient, dan DTO AI.
-  - **Services**: Logika import CSV, kalkulasi TDEE, komunikasi AI, dan pemetaan hasil AI ke database makanan.
-  - **Data**: Konteks database SQLite (Entity Framework Core).
-- **`/Frontend`**: Single-Page Application (SPA).
-  - **`index.html`**: Antarmuka pengguna utama.
-  - **`css/style.css`**: Desain responsif dengan Vanilla CSS.
-  - **`js/app.js`**: Logika state management dan kalkulasi di sisi klien.
-  - **`js/api.js`**: Client library untuk berkomunikasi dengan Backend.
-- **`/DatabaseMakanan`**: Folder penyimpanan data CSV nutrisi.
-  - `DatabaseNilaiGiziCom.csv`: Data makanan referensi dengan format delimiter `;`.
-  - `DatabaseFatSecret.csv`: Data makanan tambahan dengan format delimiter `,`.
-- **`/Assets`**: Launcher, installer, dan aset pendukung aplikasi.
-  - `NutriSurvey.vbs`: Launcher utama (popup progress, tanpa terminal).
-  - `RUN.bat`: Runner backend/frontend.
-  - `NutriSurvey.ico` / `logo.png`: Ikon launcher.
-  - `template.rtf`: Template laporan Word.
+- Local food and nutrient database with CSV import.
+- Serving-aware nutrient totals and TDEE calculation.
+- Nutrient recommendations and AI meal plans mapped to local foods.
+- RTF report export through native desktop save flow.
+- Responsive desktop and mobile UI; mobile report delivery is explicitly unsupported until a compatible share/document-picker plugin is adopted.
 
-## Fitur Utama
+## Development setup
 
-1.  **Pencarian Makanan Cepat**: Mencari dari ribuan database makanan lokal dan internasional.
-2.  **Kalkulasi Berbasis Sajian**: Menghitung nutrisi secara dinamis berdasarkan jumlah yang diinput pengguna (mendukung satuan g dan ml).
-3.  **Rekomendasi Pintar**: Mencari makanan berdasarkan filter nutrisi tertentu (misal: "makanan dengan protein > 20g").
-4.  **Target Nutrisi Kustom**: Menghitung TDEE berdasarkan profil fisik dan aktivitas pengguna.
-5.  **AI Meal Planner**: Membuat rencana makan berbasis target TDEE, makro, dan kategori waktu makan dari Dashboard.
-6.  **Validasi Database Lokal**: Output AI dipetakan kembali ke database SQLite agar makanan yang tampil berasal dari data lokal, bukan halusinasi model.
-7.  **Auto-Scaling Nutrisi**: Porsi hasil AI dinormalisasi otomatis agar total kalori mendekati target TDEE dengan toleransi 5%, dan porsi di bawah 25 g dibuang agar menu tetap realistis.
-8.  **Implementasi ke Dashboard**: Rencana AI yang sudah tervalidasi dapat dimasukkan ke Manajemen Menu untuk diedit manual, dihapus, atau ditambah makanan lain.
-9.  **Ekspor Laporan**: Mengekspor hasil analisis harian ke format Microsoft Word.
+Requirements: Node.js 22+, npm, Rust stable, and the platform dependencies documented by Tauri for the target platform.
 
-## AI Meal Planner
+```sh
+npm ci
+npm run dev
+```
 
-Fitur AI Meal Planner menggunakan konsep BYOK (Bring Your Own Key). API key hanya dikirim ke backend saat request berjalan dan tidak disimpan di aplikasi.
+Run the native development shell with:
 
-Provider yang didukung:
+```sh
+npm run tauri:dev
+```
 
-- OpenRouter: format OpenAI-compatible `/chat/completions`.
-- OpenAI: format OpenAI-compatible `/chat/completions`.
-- Google Project: Google Gemini native `:generateContent`.
-- Anthropic: Claude native `/messages`.
-- Custom Router: router OpenAI-compatible dengan Base URL manual.
+The frontend is exported as static files into `out/`; packaged applications do not start an HTTP API, browser launcher, ASP.NET runtime, or other local server.
 
-Alur kerja AI:
+## Build and checks
 
-1. Hitung TDEE terlebih dahulu di Kalkulator TDEE.
-2. Atur kategori waktu makan di Dashboard, misalnya `Makan Pagi`, `Makan Siang`, dan `Makan Malam`.
-3. Buka AI Meal Planner, pilih provider, masukkan model dan API key.
-4. Aplikasi mengirim target TDEE, target makro, dan kategori waktu makan saat ini ke AI.
-5. Backend memetakan makanan hasil AI ke database SQLite lokal.
-6. Backend menormalisasi gramasi agar total kalori mendekati target TDEE.
-7. User dapat meninjau hasil, lalu menekan `Implementasikan Plan ke Dashboard` untuk mengedit menu secara manual.
+```sh
+npm run lint
+npm run typecheck
+npm test
+npm run build
+cargo fmt --all -- --check
+cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
+cargo test --manifest-path src-tauri/Cargo.toml
+npm run tauri:build
+```
 
-Catatan keamanan:
+Desktop bundles are written below `src-tauri/target/release/bundle`. `tauri build` runs `npm run build` automatically through `beforeBuildCommand`, so stale or missing `out/` content is not packaged. Signing credentials are supplied by the CI environment or local keychain and are never committed.
 
-- Jangan commit API key ke repository.
-- Gunakan API key sementara atau terbatas jika memungkinkan.
-- Provider custom harus kompatibel dengan schema OpenAI chat completions.
+Updater support is intentionally disabled for this migration release: no public key, endpoint, or signing metadata is present. Enable Tauri updater only in a release change after generating a real keypair, publishing signed update artifacts, and storing the public key plus endpoint as reviewed repository configuration; keep private signing keys in CI secrets.
 
-## Cara Menjalankan
+Mobile project setup and builds:
 
-1.  **Setup (sekali saja)**:
-    Unduh `Setup.exe` dari GitHub Release, lalu jalankan sebagai Administrator.
-    - Installer akan mengunduh project terbaru dari GitHub dan memasangnya ke `C:\NutriSurvey2.0`.
-    - Jika folder `C:\NutriSurvey2.0` tidak dapat ditulis, installer memakai fallback `%LocalAppData%\NutriSurvey2.0`.
-    - Installer akan membuat shortcut `NutriSurvey 2.0.lnk` di Desktop dan folder install.
-    - Installer akan cek `.NET SDK 8.0.420` beserta runtime `Microsoft.AspNetCore.App 8.0.26`, `Microsoft.NETCore.App 8.0.26`, dan `Microsoft.WindowsDesktop.App 8.0.26`.
-    - Jika dependency belum ada, installer akan mengunduh dan menginstall .NET dengan tampilan progress.
-    - Setelah selesai, installer menampilkan popup sukses.
-2.  **Run Application**:
-    Jalankan `NutriSurvey 2.0.lnk` yang dibuat oleh setup, atau `Assets/NutriSurvey.vbs`.
-    - Frontend akan berjalan di: `http://localhost:8080`
-    - API Backend akan berjalan di: `http://localhost:5000`
-    - Progress launcher berjalan per task: 25% (cek komponen), 50% (backend), 75% (frontend), 100% (membuka browser).
+```sh
+npx tauri android init
+npm run tauri:build -- android
+npx tauri ios init
+npm run tauri:build -- ios
+```
 
-## Database
-Database SQLite (`nutrition.db`) dibuat otomatis saat backend pertama kali dijalankan. Saat tabel `Foods` masih kosong, backend akan memindai semua file CSV di folder `DatabaseMakanan` lalu mengimpor datanya di background agar API tetap bisa mulai berjalan. Pada pemakaian pertama, pencarian makanan dapat kosong sementara sampai proses import selesai.
+Android CI installs Android platform 35, build-tools 35.0.0, NDK 27.2.12479018, and all Rust Android targets before initializing and building the Tauri project. Android signing uses Gradle/Android keystore environment or runner secrets. iOS signing uses Xcode, certificates, and provisioning profiles supplied through the runner. Without signing inputs, CI performs compile/build checks and uploads unsigned outputs where available.
 
-## Catatan Repository
-- File hasil build (`bin/`, `obj/`), database lokal (`*.db`), file shortcut (`*.lnk`), dan data upload runtime (`Backend/Data/MasterDatabases/`) tidak disarankan untuk dipublikasikan ke repository.
+## Data and files
+
+- SQLite database is stored in the platform-native application data directory.
+- Bundled CSV files under `DatabaseMakanan/` and `Assets/template.rtf` are read-only packaged resources.
+- Imported CSV files are copied into the application data `imports` directory before import.
+- Desktop reports use a user-selected save path. Mobile report export currently returns an explicit unsupported error; it never claims a share succeeded.
+- Desktop `.nutri` save/open uses Rust commands with paths selected by native dialogs. Mobile `.nutri` project file delivery is currently unsupported.
+- Existing `.nutri` project data remains application-managed and is not written to repository paths.
+
+## AI key handling
+
+AI uses BYOK. Provider, model, optional custom base URL, and API key are sent only for the active request. Keys are request-memory-only: they are not persisted in SQLite, URLs, logs, frontend bundles, packaged resources, or generated reports. Do not commit keys or place them in CI configuration files.
+
+Supported providers: OpenRouter, OpenAI-compatible endpoints, Google Gemini, Anthropic, and custom OpenAI-compatible routers.
+
+## Migration status
+
+Rust/Tauri feature parity and frontend migration are implemented through Task 7. Legacy `Backend/`, `Frontend/`, and launcher files remain intentionally during the Task 9 acceptance window. They must not be used for native development or packaging and will be retired only after parity tests, smoke checks, and clean packaged-start verification pass.
+
+## CI
+
+`.github/workflows/build.yml` runs frontend, Rust, Linux, Windows, macOS, Android, and iOS checks where GitHub-hosted toolchains exist. Signing is conditional on repository/organization secrets. Unsigned artifacts are uploaded when signing secrets are unavailable; secrets are never embedded in the repository. Frontend smoke runs against the static `out/` app with a mocked Tauri invoke bridge. `npm run test:e2e` builds `out/` first through Playwright's web server prerequisite; running it without Node/npm or a successful `npm run build` fails with setup/build output instead of depending on cwd or stale artifacts.
+
+## Task 9 acceptance status
+
+Task 9 acceptance coverage is implemented in `src-tauri/tests/acceptance.rs` and `tests/e2e/smoke.spec.ts`; detailed evidence is recorded in `task-9-report.md`. Local Rust acceptance and frontend checks have passed, but this does not establish full migration acceptance.
+
+Legacy `Backend/`, `Frontend/`, and launcher files remain because migration retirement requires every parity gate to pass. Local Playwright smoke is blocked because Chromium was unavailable and its download timed out. Linux packaging is blocked by missing/incomplete `linuxdeploy`. Android build was not run locally; installed Rust targets or `adb` are not packaging evidence. iOS build was not run because Linux lacks Xcode/macOS. Windows/macOS packaging and clean packaged-start checks remain CI-only. CI provisions Chromium and Android toolchains; CI remains required evidence for hosted desktop/mobile gates.
