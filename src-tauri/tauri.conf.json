@@ -20,7 +20,7 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; connect-src 'self' ipc: http://ipc.localhost; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; font-src 'self' data:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'"
+      "csp": "default-src 'self'; connect-src 'self' ipc: http://ipc.localhost https://github.com https://objects.githubusercontent.com https://releases.githubusercontent.com; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self'; font-src 'self' data:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'"
     }
   },
   "bundle": {
@@ -35,6 +35,14 @@
     "shortDescription": "Nutrition analysis and meal planning",
     "longDescription": "Native nutrition analysis, food search, meal planning, and report export.",
     "copyright": "NutriSurvey contributors",
-    "createUpdaterArtifacts": false
+    "createUpdaterArtifacts": true
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "BnJPhcBjBzq/Gm30SVr7vCb7PLDSW4syHj9jtiGUK2Y=",
+      "endpoints": [
+        "https://github.com/Yudhistira-Official/nutrisurvey-2.0/releases/latest/download/latest.json"
+      ]
+    }
   }
 }

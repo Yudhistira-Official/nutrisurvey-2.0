@@ -137,18 +137,37 @@ pub struct TdeeResponse {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct FileHistoryItem {
+    pub path: String,
+    pub kind: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct RecommendationFilter {
     pub nutrient: String,
     pub operator: String,
     pub value: f64,
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AiDefaultInfo {
+    pub available: bool,
+    pub provider: String,
+    pub model: String,
+    pub base_url: String,
+}
+
 #[derive(Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct AiRequest {
     pub target_tdee: i32,
     pub target_carbs: i32,
     pub target_protein: i32,
     pub target_fat: i32,
+    #[serde(default)]
+    pub prompt: String,
     pub available_meal_types: Vec<String>,
     pub provider: String,
     pub model: String,

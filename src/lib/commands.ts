@@ -1,7 +1,7 @@
-import { invoke } from '@tauri-apps/api/core';
-
+import { Channel, invoke } from '@tauri-apps/api/core';
 import type {
   AiConfig,
+  AiDefaultInfo,
   AiMealRow,
   ExportRequest,
   ExportResult,
@@ -12,6 +12,7 @@ import type {
   TdeeRequest,
   TdeeResponse,
   ProjectFile,
+  FileHistoryItem,
 } from './types';
 
 export type CommandPayload = Record<string, unknown>;
@@ -38,6 +39,18 @@ export function createCommandAdapters(invokeFn: CommandInvoker = invokeCommand) 
 
 const adapters = createCommandAdapters();
 
+export function listFileHistory(): Promise<FileHistoryItem[]> {
+  return invokeCommand<FileHistoryItem[]>('file_history_list');
+}
+
+export function recordFileHistory(item: FileHistoryItem): Promise<void> {
+  return invokeCommand<void>('file_history_record', { item });
+}
+
+export function openExistingFile(path: string): Promise<void> {
+  return invokeCommand<void>('open_existing_file', { path });
+}
+
 export function getFoodStatus(): Promise<FoodStatus> {
   return adapters.getFoodStatus();
 }
@@ -58,11 +71,28 @@ export function calculateTdee(request: TdeeRequest): Promise<TdeeResponse> {
   return invokeCommand<TdeeResponse>('calculate_tdee', { request });
 }
 
+export function getAiDefaultInfo(): Promise<AiDefaultInfo> {
+  return invokeCommand<AiDefaultInfo>('ai_default_info');
+}
+
+export function loadAiKey(): Promise<string | null> {
+  return invokeCommand<string | null>('ai_key_load');
+}
+
+export function saveAiKey(value: string): Promise<void> {
+  return invokeCommand<void>('ai_key_save', { value });
+}
+
+export function deleteAiKey(): Promise<void> {
+  return invokeCommand<void>('ai_key_delete');
+}
+
 export function generateAiMenu(request: {
   targetTDEE: number;
   targetCarbs: number;
   targetProtein: number;
   targetFat: number;
+  prompt: string;
   availableMealTypes: string[];
   aiConfig: AiConfig;
 }): Promise<AiMealRow[]> {
@@ -72,12 +102,42 @@ export function generateAiMenu(request: {
       targetCarbs: request.targetCarbs,
       targetProtein: request.targetProtein,
       targetFat: request.targetFat,
+      prompt: request.prompt,
       availableMealTypes: request.availableMealTypes,
       provider: request.aiConfig.provider,
       model: request.aiConfig.model,
       apiKey: request.aiConfig.apiKey,
       baseUrl: request.aiConfig.baseUrl,
     },
+  });
+}
+
+export function streamAiMenu(request: {
+  targetTDEE: number;
+  targetCarbs: number;
+  targetProtein: number;
+  targetFat: number;
+  prompt: string;
+  availableMealTypes: string[];
+  aiConfig: AiConfig;
+  onToken: (token: string) => void;
+}): Promise<AiMealRow[]> {
+  const channel = new Channel<string>();
+  channel.onmessage = request.onToken;
+  return invokeCommand<AiMealRow[]>('stream_ai_menu', {
+    request: {
+      targetTdee: request.targetTDEE,
+      targetCarbs: request.targetCarbs,
+      targetProtein: request.targetProtein,
+      targetFat: request.targetFat,
+      prompt: request.prompt,
+      availableMealTypes: request.availableMealTypes,
+      provider: request.aiConfig.provider,
+      model: request.aiConfig.model,
+      apiKey: request.aiConfig.apiKey,
+      baseUrl: request.aiConfig.baseUrl,
+    },
+    channel,
   });
 }
 
@@ -91,4 +151,12 @@ export function importCsv(bytes: number[], sourceName: string): Promise<number> 
 
 export function importCsvFromPath(path: string): Promise<number> {
   return invokeCommand<number>('import_csv_from_path', { path });
+}
+
+export function checkUpdate(): Promise<string | null> {
+  return invokeCommand<string | null>('check_update');
+}
+
+export function installUpdate(): Promise<void> {
+  return invokeCommand<void>('install_update');
 }

@@ -16,7 +16,7 @@ pub use google::{google_endpoint, google_endpoint_for_client};
 mod openai;
 pub mod prompt;
 
-const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
+const REQUEST_TIMEOUT: Duration = Duration::from_secs(90);
 
 pub async fn generate_menu(
     storage: &Storage,
@@ -35,6 +35,45 @@ pub async fn generate_menu(
         .build()
         .map_err(|_| AppError::Ai("unable to configure AI client".into()))?;
     generate_menu_with_client(storage, request, &client).await
+}
+
+pub async fn stream_menu(
+    storage: &Storage,
+    request: AiRequest,
+    channel: tauri::ipc::Channel<String>,
+) -> Result<Vec<MappedMealItem>, AppError> {
+    validate_request(&request)?;
+    let (base_url, socket) =
+        resolve_and_pin(&request.base_url, || resolve_host(&request.base_url))?;
+    let host = base_url
+        .host_str()
+        .ok_or_else(|| AppError::Validation("AI base URL is invalid".into()))?;
+    let client = Client::builder()
+        .timeout(REQUEST_TIMEOUT)
+        .redirect(Policy::none())
+        .resolve(host, socket)
+        .build()
+        .map_err(|_| AppError::Ai("unable to configure AI client".into()))?;
+    let content = match request.provider.trim().to_ascii_lowercase().as_str() {
+        "openai" | "openrouter" | "custom" => {
+            openai::generate_stream(&client, &request, |token| {
+                let _ = channel.send(token.to_owned());
+            })
+            .await?
+        }
+        _ => {
+            let content = match request.provider.trim().to_ascii_lowercase().as_str() {
+                "google" | "gemini" => google::generate(&client, &request).await?,
+                "anthropic" | "claude" => anthropic::generate(&client, &request).await?,
+                _ => return Err(AppError::Validation("unsupported AI provider".into())),
+            };
+            let _ = channel.send(content.clone());
+            content
+        }
+    };
+    let plan = prompt::parse_meal_plan(&content)?;
+    let mapped = meals::map_ai_items(storage, &plan).await?;
+    Ok(normalize_menu_to_tdee(mapped, request.target_tdee))
 }
 
 pub async fn generate_menu_with_client(
@@ -98,7 +137,9 @@ fn validate_request(request: &AiRequest) -> Result<(), AppError> {
             "AI model and meal types are required".into(),
         ));
     }
-    endpoint_shape(&request.base_url)?;
+    if !request.base_url.trim().is_empty() {
+        endpoint_shape(&request.base_url)?;
+    }
     Ok(())
 }
 

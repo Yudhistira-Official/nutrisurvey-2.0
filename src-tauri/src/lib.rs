@@ -25,6 +25,37 @@ pub mod commands {
     }
 
     #[tauri::command]
+    pub async fn check_update(app: AppHandle) -> Result<Option<String>, error::AppError> {
+        use tauri_plugin_updater::UpdaterExt;
+        let update = app
+            .updater()
+            .map_err(|cause| error::AppError::Io(cause.to_string()))?
+            .check()
+            .await
+            .map_err(|cause| error::AppError::Io(cause.to_string()))?;
+        Ok(update.map(|update| update.version.to_string()))
+    }
+
+    #[tauri::command]
+    pub async fn install_update(app: AppHandle) -> Result<(), error::AppError> {
+        use tauri_plugin_updater::UpdaterExt;
+        let Some(update) = app
+            .updater()
+            .map_err(|cause| error::AppError::Io(cause.to_string()))?
+            .check()
+            .await
+            .map_err(|cause| error::AppError::Io(cause.to_string()))?
+        else {
+            return Ok(());
+        };
+        update
+            .download_and_install(|_bytes, _total| {}, || {})
+            .await
+            .map_err(|cause| error::AppError::Io(cause.to_string()))?;
+        Ok(())
+    }
+
+    #[tauri::command]
     pub async fn food_search(
         state: State<'_, AppState>,
         query: String,
@@ -86,11 +117,161 @@ pub mod commands {
     }
 
     #[tauri::command]
+    pub fn ai_key_load() -> Result<Option<String>, error::AppError> {
+        let entry = keyring::Entry::new("NutriSurvey", "ai-api-key")
+            .map_err(|cause| error::AppError::Io(cause.to_string()))?;
+        match entry.get_password() {
+            Ok(value) => Ok(Some(value)),
+            Err(keyring::Error::NoEntry) => Ok(None),
+            Err(cause) => Err(error::AppError::Io(cause.to_string())),
+        }
+    }
+
+    #[tauri::command]
+    pub fn ai_key_save(value: String) -> Result<(), error::AppError> {
+        let entry = keyring::Entry::new("NutriSurvey", "ai-api-key")
+            .map_err(|cause| error::AppError::Io(cause.to_string()))?;
+        entry
+            .set_password(&value)
+            .map_err(|cause| error::AppError::Io(cause.to_string()))
+    }
+
+    #[tauri::command]
+    pub fn ai_key_delete() -> Result<(), error::AppError> {
+        let entry = keyring::Entry::new("NutriSurvey", "ai-api-key")
+            .map_err(|cause| error::AppError::Io(cause.to_string()))?;
+        match entry.delete_credential() {
+            Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
+            Err(cause) => Err(error::AppError::Io(cause.to_string())),
+        }
+    }
+
+    #[tauri::command]
+    pub fn ai_default_info() -> models::AiDefaultInfo {
+        models::AiDefaultInfo {
+            available: option_env!("AI_API_KEY").is_some() && option_env!("AI_MODEL").is_some(),
+            provider: option_env!("AI_PROVIDER").unwrap_or("openrouter").into(),
+            model: option_env!("AI_MODEL").unwrap_or("").into(),
+            base_url: option_env!("AI_BASE_URL")
+                .or(option_env!("BASE_URL"))
+                .unwrap_or("")
+                .into(),
+        }
+    }
+
+    #[tauri::command]
     pub async fn generate_ai_menu(
         state: State<'_, AppState>,
-        request: models::AiRequest,
+        mut request: models::AiRequest,
     ) -> Result<Vec<models::MappedMealItem>, error::AppError> {
+        if request.provider == "builtin_default" {
+            request.provider = option_env!("AI_PROVIDER").unwrap_or("openrouter").into();
+            request.model = option_env!("AI_MODEL").unwrap_or("").into();
+            request.base_url = option_env!("AI_BASE_URL")
+                .or(option_env!("BASE_URL"))
+                .unwrap_or("")
+                .into();
+            request.api_key = option_env!("AI_API_KEY").unwrap_or("").into();
+        }
         ai::generate_menu(&state.storage, request).await
+    }
+
+    #[tauri::command]
+    pub async fn stream_ai_menu(
+        state: State<'_, AppState>,
+        mut request: models::AiRequest,
+        channel: tauri::ipc::Channel<String>,
+    ) -> Result<Vec<models::MappedMealItem>, error::AppError> {
+        if request.provider == "builtin_default" {
+            request.provider = option_env!("AI_PROVIDER").unwrap_or("openrouter").into();
+            request.model = option_env!("AI_MODEL").unwrap_or("").into();
+            request.base_url = option_env!("AI_BASE_URL")
+                .or(option_env!("BASE_URL"))
+                .unwrap_or("")
+                .into();
+            request.api_key = option_env!("AI_API_KEY").unwrap_or("").into();
+        }
+        ai::stream_menu(&state.storage, request, channel).await
+    }
+
+    #[tauri::command]
+    pub async fn file_history_list(
+        state: State<'_, AppState>,
+    ) -> Result<Vec<models::FileHistoryItem>, error::AppError> {
+        let raw = sqlx::query_scalar::<_, String>(
+            "SELECT value FROM app_state WHERE key = 'file_history'",
+        )
+        .fetch_optional(state.storage.pool())
+        .await?;
+        let items = raw
+            .map(|value| {
+                serde_json::from_str::<Vec<models::FileHistoryItem>>(&value).unwrap_or_default()
+            })
+            .unwrap_or_default();
+        Ok(items
+            .into_iter()
+            .filter(|item| std::path::Path::new(&item.path).is_file())
+            .collect())
+    }
+
+    async fn record_history(
+        storage: &storage::Storage,
+        item: models::FileHistoryItem,
+    ) -> Result<(), error::AppError> {
+        if !std::path::Path::new(&item.path).is_file() {
+            return Err(error::AppError::Validation("file does not exist".into()));
+        }
+        let raw = sqlx::query_scalar::<_, String>(
+            "SELECT value FROM app_state WHERE key = 'file_history'",
+        )
+        .fetch_optional(storage.pool())
+        .await?;
+        let mut items = raw
+            .map(|value| {
+                serde_json::from_str::<Vec<models::FileHistoryItem>>(&value).unwrap_or_default()
+            })
+            .unwrap_or_default();
+        items.retain(|entry| entry.path != item.path || entry.kind != item.kind);
+        items.insert(0, item);
+        items.truncate(50);
+        let value = serde_json::to_string(&items)
+            .map_err(|cause| error::AppError::Io(cause.to_string()))?;
+        sqlx::query("INSERT INTO app_state (key,value) VALUES ('file_history',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").bind(value).execute(storage.pool()).await?;
+        Ok(())
+    }
+
+    #[tauri::command]
+    pub async fn file_history_record(
+        state: State<'_, AppState>,
+        item: models::FileHistoryItem,
+    ) -> Result<(), error::AppError> {
+        if !std::path::Path::new(&item.path).is_file() {
+            return Err(error::AppError::Validation("file does not exist".into()));
+        }
+        record_history(&state.storage, item).await
+    }
+
+    #[tauri::command]
+    pub fn open_existing_file(path: String) -> Result<(), error::AppError> {
+        let path_ref = std::path::Path::new(&path);
+        if !path_ref.is_file() {
+            return Err(error::AppError::Validation("file does not exist".into()));
+        }
+        #[cfg(target_os = "linux")]
+        let mut command = std::process::Command::new("xdg-open");
+        #[cfg(target_os = "macos")]
+        let mut command = std::process::Command::new("open");
+        #[cfg(target_os = "windows")]
+        let mut command = {
+            let mut command = std::process::Command::new("cmd");
+            command.args(["/C", "start", ""]);
+            command
+        };
+        command
+            .arg(path_ref)
+            .spawn()
+            .map_err(|cause| error::AppError::Io(cause.to_string()))?;
+        Ok(())
     }
 
     #[tauri::command]
@@ -117,6 +298,14 @@ pub mod commands {
                 return Ok(false);
             };
             project::save(&path, &project).await?;
+            record_history(
+                &app.state::<AppState>().storage,
+                models::FileHistoryItem {
+                    path: path.to_string_lossy().into_owned(),
+                    kind: "project".into(),
+                },
+            )
+            .await?;
             Ok(true)
         }
         #[cfg(mobile)]
@@ -212,6 +401,14 @@ pub mod commands {
             let selected = export::resolve_selected_path(selected.map(|path| path.into_path()))?;
             let path = export::validate_selected_path(selected.as_deref())?;
             std::fs::write(path, &initial.bytes)?;
+            record_history(
+                &app.state::<AppState>().storage,
+                models::FileHistoryItem {
+                    path: path.to_string_lossy().into_owned(),
+                    kind: "report".into(),
+                },
+            )
+            .await?;
             Ok(export::ExportResult {
                 delivery: export::ExportDelivery::Saved,
                 saved_path: Some(path.to_string_lossy().into_owned()),
@@ -234,6 +431,8 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
         .setup(|app| {
             let storage = tauri::async_runtime::block_on(storage::Storage::open(app.handle()))?;
             let storage = Arc::new(storage);
@@ -251,9 +450,19 @@ pub fn run() {
             commands::import_food_csv,
             commands::import_csv_from_path,
             commands::generate_ai_menu,
+            commands::stream_ai_menu,
+            commands::ai_default_info,
+            commands::ai_key_load,
+            commands::ai_key_save,
+            commands::ai_key_delete,
+            commands::file_history_list,
+            commands::file_history_record,
+            commands::open_existing_file,
             commands::project_save,
             commands::project_open,
-            commands::export_word
+            commands::export_word,
+            commands::check_update,
+            commands::install_update
         ])
         .run(tauri::generate_context!())
         .expect("error while running NutriSurvey");
@@ -515,6 +724,25 @@ mod tests {
             let expected = keys.into_iter().collect::<std::collections::BTreeSet<_>>();
             assert_eq!(actual, expected);
         }
+    }
+
+    #[test]
+    fn ai_request_accepts_frontend_camel_case_payload() {
+        let value = serde_json::json!({
+            "targetTdee": 2000,
+            "targetCarbs": 250,
+            "targetProtein": 100,
+            "targetFat": 60,
+            "availableMealTypes": ["Makan Pagi"],
+            "provider": "openrouter",
+            "model": "openai/gpt-4o-mini",
+            "apiKey": "test-key",
+            "baseUrl": "https://openrouter.ai/api/v1"
+        });
+        let request: crate::models::AiRequest = serde_json::from_value(value).unwrap();
+        assert_eq!(request.target_tdee, 2000);
+        assert_eq!(request.available_meal_types, vec!["Makan Pagi"]);
+        assert_eq!(request.api_key, "test-key");
     }
 
     #[test]

@@ -29,6 +29,13 @@ test('tdee calculator uses responsive paired panels and AF IF labels', () => {
   assert.match(source, /isManualFactors \? <input/);
 });
 
+test('settings panels stretch to viewport height and equal height', () => {
+  const css = readFileSync(new URL('../src/styles/globals.css', import.meta.url), 'utf8');
+  assert.match(css, /settings-page-grid[^}]*align-items:stretch/);
+  assert.match(css, /settings-page-grid>\.card[^}]*height:100%/);
+  assert.match(css, /min-height:calc\(100vh/);
+});
+
 test('toast notifications auto-dismiss after three seconds with exit animation', () => {
   const source = readFileSync(new URL('../src/app/page.tsx', import.meta.url), 'utf8');
   const css = readFileSync(new URL('../src/styles/globals.css', import.meta.url), 'utf8');

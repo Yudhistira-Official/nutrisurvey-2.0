@@ -42,7 +42,9 @@ export type TdeeResponse = {
   adjustedWeight: number;
   referenceWeight: number;
 };
+export type TdeeClinicalContext = { request: TdeeRequest; assessment: TdeeResponse; targets: Targets };
 export type AiConfig = { provider: string; model: string; apiKey: string; baseUrl: string };
+export type AiDefaultInfo = { available: boolean; provider: string; model: string; baseUrl: string };
 export type AiMealRow = {
   meal_type: string;
   requested_keyword: string;
@@ -76,6 +78,8 @@ export type ExportResult = {
   delivery: 'saved';
   savedPath?: string | null;
 };
+export type FileHistoryItem = { path: string; kind: 'project' | 'report' };
+
 export type ProjectFile = {
   version: 1;
   foods: SessionFood[];

@@ -8,9 +8,10 @@ import FoodSearch from '../components/FoodSearch';
 import Recommendations from '../components/Recommendations';
 import TdeeCalculator from '../components/TdeeCalculator';
 import AiMealPlanner from '../components/AiMealPlanner';
+import SettingsPanel from '../components/SettingsPanel';
 import { exportToWord, getFoodStatus, getNutrientList, importCsvFromPath } from '../lib/commands';
 import { projectFile } from '../lib/project';
-import { defaultMeals, defaultTargets, implementAiRows, moveFoodToMeal, type AiMealRow, type FoodResult, type MealTime, type NutrientSummary, type SessionFood, type Targets } from '../lib/types';
+import { defaultMeals, defaultTargets, implementAiRows, moveFoodToMeal, type AiMealRow, type FoodResult, type MealTime, type NutrientSummary, type SessionFood, type Targets, type TdeeClinicalContext } from '../lib/types';
 
 const id = () => `${Date.now()}-${Math.random()}`;
 const csvFilter = [{ name: 'CSV database', extensions: ['csv'] }];
@@ -20,6 +21,7 @@ export default function Home() {
   const [foods, setFoods] = useState<SessionFood[]>([]);
   const [meals, setMeals] = useState<MealTime[]>(defaultMeals);
   const [targets, setTargets] = useState<Targets>(defaultTargets);
+  const [tdeeContext, setTdeeContext] = useState<TdeeClinicalContext | null>(null);
   const [nutrients, setNutrients] = useState<NutrientSummary[]>([]);
   const [ready, setReady] = useState(false);
   const [searchMeal, setSearchMeal] = useState<string | null>(null);
@@ -28,6 +30,7 @@ export default function Home() {
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const toastExitTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [newMeal, setNewMeal] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const newMealRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => { getFoodStatus().then(status => setReady(status.isReady)).catch(() => setReady(false)); getNutrientList().then(setNutrients).catch(() => setNutrients([])); }, []);
@@ -47,8 +50,13 @@ export default function Home() {
   const addFood = (food: FoodResult, amount: number, mealTime: string) => setFoods(current => [...current, { ...food, id: id(), amount, mealTime }]);
   const implementAi = (rows: AiMealRow[]) => {
     const result = implementAiRows(rows, meals);
-    if (result.added.length) { setFoods(current => [...current, ...result.added]); setSection('dashboard'); setMessage(`${result.added.length} item AI ditambahkan`); }
-    if (result.unmatched.length) setMessage(`Kategori AI tidak cocok: ${result.unmatched.join(', ')}`);
+    setFoods(result.added);
+    setSection('dashboard');
+    if (result.unmatched.length) {
+      setMessage(`${result.added.length} item AI diterapkan. Kategori tidak cocok: ${result.unmatched.join(', ')}`);
+    } else {
+      setMessage(`${result.added.length} item AI diterapkan ke Dashboard`);
+    }
   };
   const reportRequest = useMemo(() => ({ foods: foods.map(food => ({ mealTime: food.mealTime, name: food.name, amount: food.amount, servingSize: food.servingSize, servingUnit: food.servingUnit, nutrients: food.nutrients })), mealTimes: meals, targets }), [foods, meals, targets]);
 
@@ -79,5 +87,5 @@ export default function Home() {
     catch (error) { notifyError(error, 'Gagal ekspor Word'); }
   };
 
-  return <div className="app-shell"><Navigation section={section} onSection={setSection} onSave={saveProject} onOpen={openProject} onImportCsv={openCsv} onReport={exportReport} /><main className="main-content"><header className="top-bar"><span>Nutrition workspace · {ready ? 'Database siap' : 'Menyiapkan database'}</span></header>{message && <div className={`toast ${toastVisible ? 'toast-visible' : 'toast-exiting'}`} role="status" onClick={() => setToastVisible(false)}>{message}</div>}{section === 'dashboard' && <Dashboard foods={foods} meals={meals} targets={targets} onAddMeal={() => setNewMeal(true)} onAddFood={setSearchMeal} onMoveFood={(foodId, mealId) => setFoods(current => moveFoodToMeal(current, foodId, mealId))} onRemoveFood={foodId => setFoods(current => current.filter(food => food.id !== foodId))} onAmount={(foodId, amount) => setFoods(current => current.map(food => food.id === foodId ? { ...food, amount } : food))} onRemoveMeal={mealId => { if (meals.length <= 1) return setMessage('Minimal harus ada 1 waktu makan'); const fallback = meals.find(meal => meal.id !== mealId); if (!fallback) return; setMeals(current => current.filter(meal => meal.id !== mealId)); setFoods(current => current.map(food => food.mealTime === mealId ? { ...food, mealTime: fallback.id } : food)); }} />}{section === 'recommendations' && <Recommendations nutrients={nutrients} onAdd={food => { addFood(food, food.servingSize || 100, meals[0].id); setSection('dashboard'); }} />}{section === 'tdee' && <TdeeCalculator onTargets={setTargets} onApplied={setMessage} />}{section === 'ai' && <AiMealPlanner meals={meals} targets={targets} onImplement={implementAi} />}<FoodSearch open={searchMeal !== null} onClose={() => setSearchMeal(null)} onSelect={(food, amount) => addFood(food, amount, searchMeal || meals[0].id)} />{newMeal && <div className="modal-backdrop"><div className="modal card"><h3>Tambah Waktu Makan</h3><input ref={newMealRef} placeholder="Contoh: Snack Sore" /><button className="primary full" onClick={() => { const label = newMealRef.current?.value.trim(); if (label) setMeals(current => [...current, { id: `MEAL_${id()}`, label }]); setNewMeal(false); }}>Tambah</button></div></div>}</main></div>;
+  return <div className="app-shell"><Navigation section={section} onSection={setSection} onSave={saveProject} onOpen={openProject} onImportCsv={openCsv} onReport={exportReport} onSettings={() => setSettingsOpen(true)} /><main className="main-content"><header className="top-bar"><span>Nutrition workspace · {ready ? 'Database siap' : 'Menyiapkan database'}</span></header>{message && <div className={`toast ${toastVisible ? 'toast-visible' : 'toast-exiting'}`} role="status" onClick={() => setToastVisible(false)}>{message}</div>}{section === 'dashboard' && <Dashboard foods={foods} meals={meals} targets={targets} onAddMeal={() => setNewMeal(true)} onAddFood={setSearchMeal} onMoveFood={(foodId, mealId) => setFoods(current => moveFoodToMeal(current, foodId, mealId))} onRemoveFood={foodId => setFoods(current => current.filter(food => food.id !== foodId))} onAmount={(foodId, amount) => setFoods(current => current.map(food => food.id === foodId ? { ...food, amount } : food))} onRemoveMeal={mealId => { if (meals.length <= 1) return setMessage('Minimal harus ada 1 waktu makan'); const fallback = meals.find(meal => meal.id !== mealId); if (!fallback) return; setMeals(current => current.filter(meal => meal.id !== mealId)); setFoods(current => current.map(food => food.mealTime === mealId ? { ...food, mealTime: fallback.id } : food)); }} />}{section === 'recommendations' && <Recommendations nutrients={nutrients} onAdd={food => { addFood(food, food.servingSize || 100, meals[0].id); setSection('dashboard'); }} />}{section === 'tdee' && <TdeeCalculator onTargets={setTargets} onClinicalContext={setTdeeContext} onApplied={setMessage} />}{section === 'ai' && <AiMealPlanner meals={meals} targets={targets} clinicalContext={tdeeContext} onImplement={implementAi} onNotify={setMessage} />}<FoodSearch open={searchMeal !== null} onClose={() => setSearchMeal(null)} onSelect={(food, amount) => addFood(food, amount, searchMeal || meals[0].id)} />{newMeal && <div className="modal-backdrop"><div className="modal card"><h3>Tambah Waktu Makan</h3><input ref={newMealRef} placeholder="Contoh: Snack Sore" /><button className="primary full" onClick={() => { const label = newMealRef.current?.value.trim(); if (label) setMeals(current => [...current, { id: `MEAL_${id()}`, label }]); setNewMeal(false); }}>Tambah</button></div></div>}<SettingsPanel open={settingsOpen} onClose={() => setSettingsOpen(false)} /></main></div>;
 }

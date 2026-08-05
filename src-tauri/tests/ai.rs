@@ -54,6 +54,7 @@ fn request(base_url: String, provider: &str) -> AiRequest {
         target_carbs: 250,
         target_protein: 100,
         target_fat: 60,
+        prompt: "menu rendah gula".into(),
         available_meal_types: vec!["Sarapan".into()],
         provider: provider.into(),
         model: "test-model".into(),
@@ -79,11 +80,10 @@ async fn openai_compatible_provider_posts_schema_prompt_and_parses_plan() {
 #[tokio::test]
 async fn google_provider_uses_supported_key_header_and_fenced_json() {
     let storage = storage().await;
-    let body =
-        r#"{"candidates":[{"content":{"parts":[{"text":"```json\n{\"meal_plan\":[]}\n```"}]}}]}"#;
+    let body = r#"{"candidates":[{"content":{"parts":[{"text":"```json\n{\"meal_plan\":[{\"meal_type\":\"Sarapan\",\"food_keyword\":\"Nasi\",\"suggested_grams\":100,\"reasoning\":\"seimbang\"}]}\n```"}]}}]}"#;
     let (url, task, client) = mock_server(200, body).await;
     let result = ai::generate_menu_with_client(&storage, request(url, "google"), &client).await;
-    assert!(result.unwrap().is_empty());
+    assert!(result.is_ok());
     let raw_request = task.await.unwrap();
     assert!(raw_request.contains("/models/test-model:generateContent"));
     assert!(raw_request.contains("x-goog-api-key: super-secret-key"));

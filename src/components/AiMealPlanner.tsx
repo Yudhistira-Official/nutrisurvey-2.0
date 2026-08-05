@@ -1,11 +1,226 @@
 'use client';
 
-import { useState } from 'react';
-import { generateAiMenu } from '../lib/commands';
-import type { AiConfig, AiMealRow, MealTime, Targets } from '../lib/types';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { generateAiMenu, getAiDefaultInfo, loadAiKey, streamAiMenu } from '../lib/commands';
+import type { AiConfig, AiMealRow, MealTime, Targets, TdeeClinicalContext } from '../lib/types';
 
-export default function AiMealPlanner({ meals, targets, onImplement }: { meals: MealTime[]; targets: Targets; onImplement: (rows: AiMealRow[]) => void }) {
-  const [config, setConfig] = useState<AiConfig>({ provider: 'openrouter', model: '', apiKey: '', baseUrl: '' }); const [rows, setRows] = useState<AiMealRow[]>([]); const [loading, setLoading] = useState(false); const [error, setError] = useState('');
-  const patch = (value: Partial<AiConfig>) => setConfig(current => ({ ...current, ...value }));
-  return <section><div className="section-header"><div><h2>AI Meal Planner Integration</h2><p>Generate customized nutritional plans.</p></div></div><div className="ai-grid"><div className="card form-grid"><h3>Configuration</h3><label>AI Provider<select value={config.provider} onChange={event => patch({ provider: event.target.value })}><option value="openrouter">OpenRouter</option><option value="openai">OpenAI</option><option value="google">Google Project</option><option value="anthropic">Anthropic</option><option value="custom">Custom Router</option></select></label>{config.provider === 'custom' && <label>Base URL<input type="url" value={config.baseUrl} onChange={event => patch({ baseUrl: event.target.value })} /></label>}<label>Model<input value={config.model} onChange={event => patch({ model: event.target.value })} /></label><label>API Key<input type="password" value={config.apiKey} onChange={event => patch({ apiKey: event.target.value })} /></label><button className="primary full" disabled={loading} onClick={async () => { setError(''); if (!config.model || !config.apiKey || targets.kcal <= 0) return setError('Model, API key, dan TDEE wajib diisi.'); setLoading(true); try { const result = await generateAiMenu({ targetTDEE: Math.round(targets.kcal), targetCarbs: Math.round(targets.carbs), targetProtein: Math.round(targets.protein), targetFat: Math.round(targets.fat), availableMealTypes: meals.map(meal => meal.label), aiConfig: { ...config, baseUrl: config.baseUrl || ({ openrouter: 'https://openrouter.ai/api/v1', openai: 'https://api.openai.com/v1', google: 'https://generativelanguage.googleapis.com/v1beta', anthropic: 'https://api.anthropic.com/v1' }[config.provider] || '') } }); setRows(result); } catch (cause) { setError(cause instanceof Error ? cause.message : 'Gagal generate AI menu'); } finally { setLoading(false); } }}>{loading ? 'Memproses...' : 'Generate AI Meal Plan'}</button>{error && <p className="error">{error}</p>}</div><div className="card ai-results"><h3>Analysis Results</h3>{rows.length === 0 ? <p className="muted">Belum ada preview.</p> : <><div className="table-scroll"><table><thead><tr><th>Waktu</th><th>Makanan</th><th>Gram</th><th>Kalori</th><th>Protein</th><th>Lemak</th><th>Karbo</th><th>Alasan</th></tr></thead><tbody>{rows.map((row, index) => <tr key={`${row.matched_food_id}-${index}`}><td>{row.meal_type}</td><td>{row.matched_food_name || row.requested_keyword}</td><td>{row.suggested_grams}</td><td>{row.calories.toFixed(1)}</td><td>{row.protein.toFixed(1)}</td><td>{row.fat.toFixed(1)}</td><td>{row.carbohydrate.toFixed(1)}</td><td>{row.reasoning}</td></tr>)}</tbody></table></div><button className="primary" onClick={() => onImplement(rows)}>Implementasikan Plan ke Dashboard</button></>}</div></div></section>;
+type ChatEntry = { role: 'user' | 'assistant'; content: string; streaming?: boolean; isError?: boolean; retryPrompt?: string; id: number };
+type AssessmentAnswer = { id: string; value: string };
+type PlannerSession = { rows: AiMealRow[]; chat: ChatEntry[]; assessmentAnswers: AssessmentAnswer[]; assessmentVisible: boolean; planStarted: boolean; clinicalContext: TdeeClinicalContext | null };
+const storageKey = 'nutrisurvey.ai-planner-session';
+const planRequest = 'Buat plan menu sekarang berdasarkan seluruh hasil asesmen saya. Susun menu harian sesuai target TDEE dan makro.';
+const maxContextTokens = 200000;
+const estimateTokens = (value: string) => Math.ceil(value.length / 4);
+const providerNames: Record<string, string> = { builtin_default: 'AI Default', openrouter: 'OpenRouter', openai: 'OpenAI', google: 'Google', anthropic: 'Anthropic', custom: 'Custom Router' };
+const assessmentSteps = [
+  { id: 'FH', label: 'Riwayat Gizi', title: 'Bagaimana pola makan Anda?', hint: 'Tuliskan makanan/minuman yang biasa dikonsumsi, jadwal makan, alergi, pantangan, serta makanan yang disukai atau tidak disukai.' },
+  { id: 'CH', label: 'Riwayat Klien', title: 'Apa kondisi kesehatan Anda?', hint: 'Tuliskan diagnosis, penyakit yang pernah dialami, obat yang dikonsumsi, dan akses terhadap bahan makanan. Jika sehat, tuliskan sehat.' },
+  { id: 'BD', label: 'Biokimia', title: 'Apakah ada hasil laboratorium?', hint: 'Masukkan hasil gula darah, HbA1c, kolesterol, kreatinin, elektrolit, atau pemeriksaan lain bila tersedia.' },
+  { id: 'PD', label: 'Fisik', title: 'Apakah ada keluhan fisik?', hint: 'Tuliskan edema, perubahan massa otot/lemak, gangguan menelan, atau tanda kekurangan gizi. Jika tidak ada, pilih tombol Tidak Ada.' },
+];
+
+const initialChat: ChatEntry[] = [{ id: 0, role: 'assistant', content: 'Halo, saya siap membantu menyusun rencana makan klinis. Kita mulai dengan asesmen singkat agar menu aman dan sesuai kebutuhan Anda.' }];
+let nextChatId = 1;
+const chatId = () => nextChatId++;
+
+export default function AiMealPlanner({ meals, targets, clinicalContext, onImplement, onNotify }: { meals: MealTime[]; targets: Targets; clinicalContext: TdeeClinicalContext | null; onImplement: (rows: AiMealRow[]) => void; onNotify: (message: string) => void }) {
+  const [config, setConfig] = useState<AiConfig>({ provider: 'openrouter', model: '', apiKey: '', baseUrl: '' });
+  const [plannerClinicalContext, setPlannerClinicalContext] = useState<TdeeClinicalContext | null>(clinicalContext);
+  const [defaultAvailable, setDefaultAvailable] = useState(false);
+  const [rows, setRows] = useState<AiMealRow[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [prompt, setPrompt] = useState('');
+  const [chat, setChat] = useState<ChatEntry[]>(initialChat);
+  const [assessmentAnswers, setAssessmentAnswers] = useState<AssessmentAnswer[]>([]);
+  const [assessmentValue, setAssessmentValue] = useState('');
+  const [assessmentVisible, setAssessmentVisible] = useState(true);
+  const [assessmentExiting, setAssessmentExiting] = useState(false);
+  const [planStarted, setPlanStarted] = useState(false);
+  const [streamingId, setStreamingId] = useState<number | null>(null);
+  const [sessionHydrated, setSessionHydrated] = useState(false);
+  const chatHistoryRef = useRef<HTMLDivElement>(null);
+  const sessionState = useRef<PlannerSession>({ rows, chat, assessmentAnswers, assessmentVisible, planStarted, clinicalContext: plannerClinicalContext });
+
+  useEffect(() => {
+    if (clinicalContext) setPlannerClinicalContext(clinicalContext);
+  }, [clinicalContext]);
+
+  useEffect(() => {
+    try {
+      const saved = sessionStorage.getItem(storageKey);
+      if (saved) {
+        const state = JSON.parse(saved) as { rows?: AiMealRow[]; chat?: ChatEntry[]; assessmentAnswers?: AssessmentAnswer[]; assessmentVisible?: boolean; planStarted?: boolean; clinicalContext?: TdeeClinicalContext | null };
+        if (state.rows) setRows(state.rows);
+        if (state.chat?.length) setChat(state.chat.map(entry => ({ ...entry, id: chatId(), streaming: false })));
+        if (state.assessmentAnswers) setAssessmentAnswers(state.assessmentAnswers);
+        if (typeof state.assessmentVisible === 'boolean') setAssessmentVisible(state.assessmentVisible);
+        if (typeof state.planStarted === 'boolean') setPlanStarted(state.planStarted);
+        if (state.clinicalContext) setPlannerClinicalContext(state.clinicalContext);
+      }
+    } catch { }
+    setSessionHydrated(true);
+    try {
+      const saved = localStorage.getItem('nutrisurvey.ai-preferences');
+      if (saved) setConfig(current => ({ ...current, ...JSON.parse(saved) }));
+    } catch { }
+    loadAiKey().then(value => { if (value) setConfig(current => ({ ...current, apiKey: value })); }).catch(() => undefined);
+    const onConfigUpdated = (event: Event) => setConfig((event as CustomEvent<AiConfig>).detail);
+    window.addEventListener('nutrisurvey.ai-config-updated', onConfigUpdated);
+    getAiDefaultInfo().then(info => {
+      setDefaultAvailable(info.available);
+      setConfig(current => current.provider === 'builtin_default' && info.available ? { ...current, model: info.model, baseUrl: info.baseUrl, apiKey: '' } : current);
+    }).catch(() => undefined);
+    return () => window.removeEventListener('nutrisurvey.ai-config-updated', onConfigUpdated);
+  }, []);
+
+  useEffect(() => {
+    if (streamingId === null) return;
+    const history = chatHistoryRef.current;
+    if (history) history.scrollTo({ top: history.scrollHeight, behavior: 'auto' });
+  }, [chat, streamingId]);
+
+  useEffect(() => {
+    if (!sessionHydrated) return;
+    sessionState.current = { rows, chat, assessmentAnswers, assessmentVisible, planStarted, clinicalContext: plannerClinicalContext };
+    try { sessionStorage.setItem(storageKey, JSON.stringify(sessionState.current)); } catch { }
+  });
+
+  const userMessages = useMemo(() => chat.filter(entry => entry.role === 'user'), [chat]);
+  const estimatedContextTokens = useMemo(() => estimateTokens(chat.map(entry => `${entry.role}: ${entry.content}`).join('\n')), [chat]);
+  const contextLimitReached = estimatedContextTokens >= maxContextTokens;
+  const answeredSteps = assessmentAnswers.map(answer => answer.id);
+  const assessmentComplete = assessmentAnswers.length >= assessmentSteps.length;
+  const showChat = planStarted;
+  const currentAssessment = assessmentSteps[assessmentAnswers.length];
+  const providerLabel = providerNames[config.provider] || config.provider;
+  const baseUrl = config.baseUrl || ({ openrouter: 'https://openrouter.ai/api/v1', openai: 'https://api.openai.com/v1', google: 'https://generativelanguage.googleapis.com/v1beta', anthropic: 'https://api.anthropic.com/v1' }[config.provider] || '');
+  const effectiveTargets = plannerClinicalContext?.targets || targets;
+  const clinicalSummary = plannerClinicalContext ? `Data klinis terverifikasi dari Kalkulator TDEE:\nJenis kelamin: ${plannerClinicalContext.request.gender}\nBerat badan: ${plannerClinicalContext.request.weightKg} kg\nTinggi badan: ${plannerClinicalContext.request.heightCm} cm\nUsia: ${plannerClinicalContext.request.age} tahun\nStandar IMT: ${plannerClinicalContext.request.bmiStandard}\nIMT: ${plannerClinicalContext.assessment.bmi}\nKlasifikasi gizi: ${plannerClinicalContext.assessment.nutritionClassification}\nBB ideal: ${plannerClinicalContext.assessment.idealWeight} kg\nBB adjusted: ${plannerClinicalContext.assessment.adjustedWeight} kg\nBB referensi: ${plannerClinicalContext.assessment.referenceWeight} kg\nBMR: ${plannerClinicalContext.assessment.basalMetabolicRate} kkal\nTDEE: ${plannerClinicalContext.assessment.totalDailyEnergyExpenditure} kkal\nFaktor aktivitas: ${plannerClinicalContext.request.activityFactor}\nFaktor cedera: ${plannerClinicalContext.request.injuryFactor}\nTarget makro: KH ${plannerClinicalContext.targets.carbs} g, protein ${plannerClinicalContext.targets.protein} g, lemak ${plannerClinicalContext.targets.fat} g.` : '';
+
+  const streamAssistant = (token: string, entryId: number) => {
+    const plainToken = token.replace(/```(?:json)?/gi, '').replace(/```/g, '');
+    setChat(current => current.map(entry => entry.id === entryId ? { ...entry, content: entry.content === 'AI sedang menyusun...' ? plainToken : entry.content + plainToken, streaming: true } : entry));
+  };
+
+  const finishStream = (entryId: number, message: string) => {
+    let index = 0;
+    const timer = window.setInterval(() => {
+      index = Math.min(message.length, index + Math.max(2, Math.ceil(message.length / 35)));
+      setChat(current => current.map(entry => entry.id === entryId ? { ...entry, content: message.slice(0, index), streaming: true } : entry));
+      if (index >= message.length) {
+        window.clearInterval(timer);
+        setChat(current => current.map(entry => entry.id === entryId ? { ...entry, content: message, streaming: false } : entry));
+        setStreamingId(null);
+      }
+    }, 30);
+  };
+
+  const revealAssistant = (message: string) => {
+    const entryId = chatId();
+    setStreamingId(entryId);
+    setChat(current => [...current, { id: entryId, role: 'assistant', content: '', streaming: true }]);
+    let index = 0;
+    const timer = window.setInterval(() => {
+      index = Math.min(message.length, index + Math.max(2, Math.ceil(message.length / 45)));
+      setChat(current => current.map(entry => entry.id === entryId ? { ...entry, content: message.slice(0, index) } : entry));
+      if (index >= message.length) {
+        window.clearInterval(timer);
+        setChat(current => current.map(entry => entry.id === entryId ? { id: entryId, role: 'assistant', content: message } : entry));
+        setStreamingId(null);
+      }
+    }, 28);
+  };
+
+  const answerAssessment = (value: string) => {
+    if (!currentAssessment || !value.trim()) return;
+    const answer = { id: currentAssessment.id, value: value.trim() };
+    const nextAnswers = [...assessmentAnswers, answer];
+    setAssessmentAnswers(nextAnswers);
+    setAssessmentValue('');
+    setChat(current => [...current, { id: chatId(), role: 'user', content: value.trim() }]);
+    if (nextAnswers.length < assessmentSteps.length) {
+      window.setTimeout(() => revealAssistant(`Terima kasih. ${assessmentSteps[nextAnswers.length].title} ${assessmentSteps[nextAnswers.length].hint}`), 180);
+    } else {
+      window.setTimeout(() => { setAssessmentExiting(true); window.setTimeout(() => { setAssessmentVisible(false); setAssessmentExiting(false); }, 300); }, 180);
+    }
+  };
+
+  const generate = async (instruction: string, userAlreadyAdded = false) => {
+    if (contextLimitReached) return;
+    if (!plannerClinicalContext || !config.model || (config.provider !== 'builtin_default' && !config.apiKey) || effectiveTargets.kcal <= 0) {
+      setChat(current => [...current, { id: chatId(), role: 'assistant' as const, content: !plannerClinicalContext ? 'Hitung TDEE dan diagnosis gizi terlebih dahulu.' : 'Konfigurasi AI wajib disiapkan di Pengaturan.', isError: true, retryPrompt: instruction }]);
+      return;
+    }
+    setLoading(true);
+    if (!userAlreadyAdded) setChat(current => [...current, { id: chatId(), role: 'user' as const, content: instruction }]);
+    const assessment = assessmentAnswers.map(answer => `${answer.id}: ${answer.value}`).join('\n');
+    const requestPrompt = `${clinicalSummary}\n\nAsesmen klinis tambahan pengguna:\n${assessment}\n\nInstruksi menu terbaru: ${instruction}`;
+    const streamId = chatId();
+    setStreamingId(streamId);
+    setChat(current => [...current, { id: streamId, role: 'assistant' as const, content: 'AI sedang menyusun...', streaming: true }]);
+    try {
+      const result = await streamAiMenu({ targetTDEE: Math.round(effectiveTargets.kcal), targetCarbs: Math.round(effectiveTargets.carbs), targetProtein: Math.round(effectiveTargets.protein), targetFat: Math.round(effectiveTargets.fat), prompt: requestPrompt, availableMealTypes: meals.map(meal => meal.label), aiConfig: { ...config, baseUrl }, onToken: token => streamAssistant(token, streamId) });
+      setRows(result);
+      finishStream(streamId, `Rencana makan selesai dibuat dengan ${result.length} item. Tinjau panel Rencana Menu, lalu tekan Terapkan ke Dashboard jika sudah sesuai.`);
+      setPrompt('');
+    } catch (cause) {
+      const message = cause instanceof Error ? cause.message : 'Gagal membuat rencana menu';
+      setChat(current => current.filter(entry => entry.id !== streamId));
+      if (/NotAllowed|not found|channel|IPC|invoke|stream|request failed|network|timeout/i.test(message)) {
+        try {
+          const result = await generateAiMenu({ targetTDEE: Math.round(effectiveTargets.kcal), targetCarbs: Math.round(effectiveTargets.carbs), targetProtein: Math.round(effectiveTargets.protein), targetFat: Math.round(effectiveTargets.fat), prompt: requestPrompt, availableMealTypes: meals.map(meal => meal.label), aiConfig: { ...config, baseUrl } });
+          setRows(result);
+          setChat(current => [...current, { id: streamId, role: 'assistant', content: 'AI sedang menyusun...', streaming: true }]);
+          finishStream(streamId, `Rencana makan selesai dibuat dengan ${result.length} item. Tinjau panel Rencana Menu, lalu tekan Terapkan ke Dashboard.`);
+          return;
+        } catch (fallbackCause) {
+          const retryMessage = fallbackCause instanceof Error ? fallbackCause.message : message;
+          setChat(current => [...current, { id: chatId(), role: 'assistant' as const, content: retryMessage, isError: true, retryPrompt: instruction }]);
+        }
+      } else {
+        setChat(current => [...current, { id: chatId(), role: 'assistant' as const, content: message, isError: true, retryPrompt: instruction }]);
+      }
+    } finally { setLoading(false); }
+  };
+
+  const startNewChat = () => {
+    try { sessionStorage.removeItem(storageKey); } catch { }
+    setRows([]);
+    setChat([{ id: chatId(), role: 'assistant', content: 'Halo, saya siap membantu menyusun rencana makan klinis. Kita mulai dengan asesmen singkat agar menu aman dan sesuai kebutuhan Anda.' }]);
+    setAssessmentAnswers([]);
+    setAssessmentValue('');
+    setAssessmentVisible(true);
+    setAssessmentExiting(false);
+    setPlanStarted(false);
+    setPrompt('');
+    setStreamingId(null);
+  };
+
+  const retryMessage = async (entry: ChatEntry) => {
+    if (!entry.retryPrompt || loading || streamingId !== null) return;
+    setChat(current => current.filter(item => item.id !== entry.id));
+    await generate(entry.retryPrompt, true);
+  };
+
+  const startPlan = async () => {
+    if (!assessmentComplete || loading || streamingId !== null) return;
+    setPlanStarted(true);
+    await generate(planRequest);
+  };
+
+  const sendMessage = async () => {
+    const message = prompt.trim();
+    if (!message || !planStarted || loading || streamingId !== null) return;
+    setPrompt('');
+    await generate(message);
+  };
+
+  return <section className="ai-planner-page">
+    <div className="section-header ai-planner-heading"><div><span className="eyebrow">Clinical nutrition workspace</span><h2>AI Meal Planner</h2><p>Susun rencana makan personal melalui asesmen gizi berbasis PAGT.</p></div><div className="ai-provider-status"><i />{providerLabel}{defaultAvailable && config.provider === 'builtin_default' && <span>ENV Default</span>}</div></div>
+    <div className="ai-clinical-strip">{plannerClinicalContext ? <><div className="ai-clinical-row diagnosis"><div className="ai-clinical-cell"><small>Diagnosis Gizi</small><b>{plannerClinicalContext.assessment.nutritionClassification}</b></div><div className="ai-clinical-cell"><small>IMT</small><b>{plannerClinicalContext.assessment.bmi.toFixed(1)}</b></div><div className="ai-clinical-cell"><small>TDEE</small><b>{Math.round(plannerClinicalContext.assessment.totalDailyEnergyExpenditure).toLocaleString('id-ID')} kkal</b></div><div className="ai-clinical-cell"><small>BB Referensi</small><b>{plannerClinicalContext.assessment.referenceWeight.toFixed(1)} kg</b></div></div><div className="ai-clinical-row macros"><div className="ai-clinical-cell"><small>Target Energi</small><b>{Math.round(effectiveTargets.kcal).toLocaleString('id-ID')} <em>kkal</em></b></div><div className="ai-clinical-cell"><small>Protein</small><b>{Math.round(effectiveTargets.protein)} <em>g</em></b></div><div className="ai-clinical-cell"><small>Karbohidrat</small><b>{Math.round(effectiveTargets.carbs)} <em>g</em></b></div><div className="ai-clinical-cell"><small>Lemak</small><b>{Math.round(effectiveTargets.fat)} <em>g</em></b></div></div></> : <div className="ai-clinical-missing"><b>Data klinis belum tersedia</b><span>Hitung TDEE terlebih dahulu.</span></div>}</div>
+    <div className="ai-planner-layout">
+      <div className="card ai-plan-panel"><div className="ai-panel-header"><div><span className="eyebrow">AI generated plan</span><h3>Rencana Menu</h3></div>{rows.length > 0 && <button className="primary" onClick={() => onImplement(rows)}>Terapkan ke Dashboard</button>}</div>{rows.length === 0 ? <div className="ai-plan-empty"><div className="ai-empty-mark">✦</div><h4>Rencana menu akan muncul di sini</h4><p>Lengkapi asesmen dan minta AI membuat menu. Anda dapat meninjau hasil sebelum menerapkannya.</p></div> : <div className="ai-plan-list">{rows.map((row, index) => <div className="ai-plan-item" key={`${row.meal_type}-${row.matched_food_id}-${index}`}><div className="ai-plan-item-top"><div><small>{row.meal_type}</small><h4>{row.matched_food_name || row.requested_keyword}</h4></div><strong>{row.suggested_grams} g</strong></div><div className="ai-plan-item-meta"><span>{row.calories.toFixed(0)} kkal</span><span>Protein {row.protein.toFixed(1)} g</span><span>KH {row.carbohydrate.toFixed(1)} g</span><span>Lemak {row.fat.toFixed(1)} g</span></div><p>{row.reasoning}</p></div>)}</div>}{rows.length > 0 && <div className="ai-disclaimer">Rekomendasi bersifat edukatif dan bukan pengganti konsultasi dokter atau ahli gizi teregistrasi.</div>}</div>
+      <div className="card ai-conversation-panel"><div className="ai-chat-header"><div><span className="eyebrow">Personal dietitian</span><h3>Chat dengan AI</h3><p>Asesmen klinis sebelum rekomendasi menu</p></div><div className="ai-chat-header-actions"><button className="new-chat-btn" onClick={startNewChat}>+ New Chat</button><span className="ai-online"><i /> Online</span></div></div><div className="ai-assessment-progress">{assessmentSteps.map(step => <span className={answeredSteps.includes(step.id) ? 'done' : ''} key={step.id}><b>{step.id}</b>{step.label}</span>)}</div>{assessmentVisible && !assessmentComplete && currentAssessment && <div className={`ai-assessment-card ${assessmentExiting ? 'assessment-exiting' : ''}`}><div className="ai-assessment-card-head"><span>Langkah {assessmentAnswers.length + 1} dari {assessmentSteps.length}</span><b>{currentAssessment.id}</b></div><h4>{currentAssessment.title}</h4><p>{currentAssessment.hint}</p><textarea value={assessmentValue} onChange={event => setAssessmentValue(event.target.value)} placeholder="Tulis jawaban Anda..." rows={3} /><div className="ai-assessment-actions"><button className="secondary" onClick={() => answerAssessment('Tidak ada')}>Tidak Ada</button><button className="primary" disabled={!assessmentValue.trim()} onClick={() => answerAssessment(assessmentValue)}>Simpan Jawaban</button></div></div>}{assessmentComplete && !planStarted && <div className="ai-plan-cta"><div><b>Asesmen selesai</b><span>AI siap menyusun plan menu berdasarkan jawaban Anda.</span></div><button className="primary" disabled={!plannerClinicalContext} onClick={() => void startPlan()}>Buat Plan Menu Sekarang <span>↗</span></button></div>}{showChat && <><div className="ai-chat-history" ref={chatHistoryRef}>{chat.map((entry, index) => <div className={`ai-chat-message ${entry.role} ${entry.streaming ? 'message-streaming' : ''}`} key={entry.id}><div className="ai-chat-avatar">{entry.role === 'assistant' ? 'AI' : 'Anda'}</div><div className={`ai-chat-bubble ${entry.isError ? 'ai-error-bubble' : ''}`}>{entry.streaming && entry.content === 'AI sedang menyusun...' ? <div className="ai-streaming-status"><span>AI sedang menyusun</span><i /><i /><i /></div> : <p>{entry.content}{entry.streaming && <span className="stream-caret" />}</p>}{entry.isError && <button className="ai-retry-btn" aria-label="Ulangi permintaan" title="Ulangi permintaan" onClick={() => void retryMessage(entry)} disabled={loading}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8.1 8.1 0 0 0-15.5-2M4 5v4h4M4 13a8.1 8.1 0 0 0 15.5 2M20 19v-4h-4" /></svg></button>}</div></div>)}</div><div className="ai-chat-compose"><textarea value={prompt} onChange={event => setPrompt(event.target.value)} onKeyDown={event => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void sendMessage(); } }} placeholder="Tulis revisi atau perubahan pada plan menu..." rows={3} disabled={!assessmentComplete || contextLimitReached} /><button className="primary ai-send-btn" disabled={loading || !prompt.trim() || !assessmentComplete || streamingId !== null} onClick={() => void sendMessage()}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-label="Kirim"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg></button></div></>}{contextLimitReached && <div className="ai-context-limit">Kuota Melebihi Batas, Tolong Buat Percakapan Baru</div>}</div>
+    </div>
+  </section>;
 }

@@ -67,6 +67,7 @@ fn ai_request(base_url: String) -> AiRequest {
         target_carbs: 250,
         target_protein: 100,
         target_fat: 60,
+        prompt: "menu seimbang".into(),
         available_meal_types: vec!["Sarapan".into()],
         provider: "openai".into(),
         model: "acceptance-model".into(),
