@@ -19,7 +19,7 @@ pub(crate) async fn generate(client: &Client, request: &AiRequest) -> Result<Str
         .post(url)
         .header("x-api-key", &request.api_key)
         .header("anthropic-version", "2023-06-01");
-    let body = send_json(client, builder, &payload).await?;
+    let body = send_json(client, builder, &payload, &request.api_key).await?;
     parse_response(&body, "/content/0/text")
 }
 

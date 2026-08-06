@@ -16,6 +16,28 @@ pub use google::{google_endpoint, google_endpoint_for_client};
 mod openai;
 pub mod prompt;
 
+use std::collections::HashSet;
+use std::sync::{Mutex, OnceLock};
+
+static CANCELLED_REQUESTS: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
+
+fn cancelled_requests() -> &'static Mutex<HashSet<String>> {
+    CANCELLED_REQUESTS.get_or_init(|| Mutex::new(HashSet::new()))
+}
+
+pub fn cancel_request(request_id: &str) {
+    if let Ok(mut requests) = cancelled_requests().lock() {
+        requests.insert(request_id.to_owned());
+    }
+}
+
+pub(crate) fn is_cancelled(request_id: &str) -> bool {
+    cancelled_requests()
+        .lock()
+        .map(|requests| requests.contains(request_id))
+        .unwrap_or(false)
+}
+
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(90);
 
 pub async fn generate_menu(
@@ -23,6 +45,7 @@ pub async fn generate_menu(
     request: AiRequest,
 ) -> Result<Vec<MappedMealItem>, AppError> {
     validate_request(&request)?;
+    let request = with_candidate_catalog(storage, request).await?;
     let (base_url, socket) =
         resolve_and_pin(&request.base_url, || resolve_host(&request.base_url))?;
     let host = base_url
@@ -43,6 +66,7 @@ pub async fn stream_menu(
     channel: tauri::ipc::Channel<String>,
 ) -> Result<Vec<MappedMealItem>, AppError> {
     validate_request(&request)?;
+    let request = with_candidate_catalog(storage, request).await?;
     let (base_url, socket) =
         resolve_and_pin(&request.base_url, || resolve_host(&request.base_url))?;
     let host = base_url
@@ -54,26 +78,134 @@ pub async fn stream_menu(
         .resolve(host, socket)
         .build()
         .map_err(|_| AppError::Ai("unable to configure AI client".into()))?;
-    let content = match request.provider.trim().to_ascii_lowercase().as_str() {
-        "openai" | "openrouter" | "custom" => {
-            openai::generate_stream(&client, &request, |token| {
-                let _ = channel.send(token.to_owned());
+    let mut current = request;
+    let max_attempts = if current.verify_menu { 3 } else { 1 };
+    let mut best: Option<(Vec<MappedMealItem>, f64)> = None;
+    for attempt in 0..max_attempts {
+        if is_cancelled(&current.request_id) {
+            return Err(AppError::Ai("AI request cancelled".into()));
+        }
+        let content_result = match current.provider.trim().to_ascii_lowercase().as_str() {
+            "openai" | "openrouter" | "custom" => {
+                openai::generate_stream(&client, &current, |token| {
+                    if attempt == 0 {
+                        let _ = channel.send(token.to_owned());
+                    }
+                })
+                .await
+            }
+            _ => generate_content(&client, &current).await,
+        };
+        let content = match content_result {
+            Ok(content) => {
+                if attempt == 0
+                    && !matches!(
+                        current.provider.trim().to_ascii_lowercase().as_str(),
+                        "openai" | "openrouter" | "custom"
+                    )
+                {
+                    send_stream_chunks(&channel, &content).await;
+                }
+                content
+            }
+            Err(error) if attempt + 1 < max_attempts => {
+                let _ = channel.send(format!(
+                    "\n\n[Verifikasi {}/3: request AI gagal ({}). AI mengulangi...]\n\n",
+                    attempt + 1,
+                    error
+                ));
+                current.prompt = format!("{}\n\nRequest sebelumnya gagal. Kembalikan JSON valid saja, tanpa markdown atau prosa.", current.prompt);
+                continue;
+            }
+            Err(error) => return Err(error),
+        };
+        let plan = match prompt::parse_meal_plan(&content) {
+            Ok(plan) => plan,
+            Err(error) if attempt + 1 < max_attempts => {
+                let _ = channel.send(format!(
+                    "\n\n[Verifikasi {}/3: respons AI tidak valid ({}). AI mengulangi...]\n\n",
+                    attempt + 1,
+                    error
+                ));
+                current.prompt = format!("{}\n\nRespons sebelumnya tidak valid JSON. Kembalikan JSON valid saja, tanpa markdown atau prosa.", current.prompt);
+                continue;
+            }
+            Err(error) => return Err(error),
+        };
+        let mapped = meals::map_ai_items(storage, &plan).await?;
+        let mapped_count = mapped.len();
+        let menu =
+            normalize_menu_to_tdee(merge_revision_menu(&current, mapped), current.target_tdee);
+        let mut report = verify_menu_targets(
+            &menu,
+            current.target_tdee,
+            current.target_carbs,
+            current.target_protein,
+            current.target_fat,
+        );
+        if mapped_count < plan.len() {
+            report.is_valid = false;
+            report.feedback = format!(
+                "{}; {} dari {} item AI tidak ditemukan dalam database",
+                report.feedback,
+                plan.len() - mapped_count,
+                plan.len()
+            );
+            report.error_score += (plan.len() - mapped_count) as f64;
+        }
+        if best
+            .as_ref()
+            .is_none_or(|(_, score)| report.error_score < *score)
+        {
+            best = Some((menu.clone(), report.error_score));
+        }
+        if report.is_valid || attempt + 1 == max_attempts {
+            return Ok(menu);
+        }
+        let _ = channel.send(format!(
+            "\n\n[Verifikasi {}/3 belum sesuai: {}. AI memperbaiki menu...]\n\n",
+            attempt + 1,
+            report.feedback
+        ));
+        current.prompt = format!("{}\n\nVERIFIKASI SISTEM (attempt {}/3): {}\nAngka aktual dihitung dari database SQLite setelah gram diskalakan, bukan dari perkiraan AI. Perbaiki gram atau pilih makanan lain berdasarkan data database. Jangan keluarkan makanan yang tidak ada di database.", current.prompt, attempt + 1, report.feedback);
+    }
+    Ok(best.map(|(menu, _)| menu).unwrap_or_default())
+}
+
+async fn with_candidate_catalog(
+    storage: &Storage,
+    mut request: AiRequest,
+) -> Result<AiRequest, AppError> {
+    if request.candidate_catalog.trim().is_empty() {
+        let candidates = crate::foods::ai_candidate_catalog(storage, 300).await?;
+        request.candidate_catalog = candidates
+            .into_iter()
+            .map(|food| {
+                let energy = food.nutrients.get("energi").copied().unwrap_or(0.0);
+                let carbs = food
+                    .nutrients
+                    .get("karbohidrat total")
+                    .copied()
+                    .unwrap_or(0.0);
+                let protein = food.nutrients.get("protein").copied().unwrap_or(0.0);
+                let fat = food.nutrients.get("lemak total").copied().unwrap_or(0.0);
+                format!(
+                    "{} | serving {:.0} {} | energi {:.1} | KH {:.1} | protein {:.1} | lemak {:.1}",
+                    food.name, food.serving_size, food.serving_unit, energy, carbs, protein, fat
+                )
             })
-            .await?
-        }
-        _ => {
-            let content = match request.provider.trim().to_ascii_lowercase().as_str() {
-                "google" | "gemini" => google::generate(&client, &request).await?,
-                "anthropic" | "claude" => anthropic::generate(&client, &request).await?,
-                _ => return Err(AppError::Validation("unsupported AI provider".into())),
-            };
-            let _ = channel.send(content.clone());
-            content
-        }
-    };
-    let plan = prompt::parse_meal_plan(&content)?;
-    let mapped = meals::map_ai_items(storage, &plan).await?;
-    Ok(normalize_menu_to_tdee(mapped, request.target_tdee))
+            .collect::<Vec<_>>()
+            .join("\\n");
+    }
+    Ok(request)
+}
+
+async fn send_stream_chunks(channel: &tauri::ipc::Channel<String>, content: &str) {
+    let chars = content.chars().collect::<Vec<_>>();
+    for chunk in chars.chunks(48) {
+        let _ = channel.send(chunk.iter().collect());
+        tokio::time::sleep(Duration::from_millis(24)).await;
+    }
 }
 
 pub async fn generate_menu_with_client(
@@ -82,15 +214,146 @@ pub async fn generate_menu_with_client(
     client: &Client,
 ) -> Result<Vec<MappedMealItem>, AppError> {
     validate_request(&request)?;
-    let content = match request.provider.trim().to_ascii_lowercase().as_str() {
-        "google" | "gemini" => google::generate(client, &request).await?,
-        "anthropic" | "claude" => anthropic::generate(client, &request).await?,
-        "openai" | "openrouter" | "custom" => openai::generate(client, &request).await?,
-        _ => return Err(AppError::Validation("unsupported AI provider".into())),
+    let mut best: Option<(Vec<MappedMealItem>, f64)> = None;
+    let mut current = request;
+    let max_attempts = if current.verify_menu { 3 } else { 1 };
+    for attempt in 0..max_attempts {
+        let content = generate_content(client, &current).await?;
+        let plan = prompt::parse_meal_plan(&content)?;
+        let mapped = meals::map_ai_items(storage, &plan).await?;
+        let mapped_count = mapped.len();
+        let menu =
+            normalize_menu_to_tdee(merge_revision_menu(&current, mapped), current.target_tdee);
+        let mut report = verify_menu_targets(
+            &menu,
+            current.target_tdee,
+            current.target_carbs,
+            current.target_protein,
+            current.target_fat,
+        );
+        if mapped_count < plan.len() {
+            report.is_valid = false;
+            report.feedback = format!(
+                "{}; {} dari {} item AI tidak ditemukan dalam database",
+                report.feedback,
+                plan.len() - mapped_count,
+                plan.len()
+            );
+            report.error_score += (plan.len() - mapped_count) as f64;
+        }
+        let score = report.error_score;
+        if best
+            .as_ref()
+            .is_none_or(|(_, best_score)| score < *best_score)
+        {
+            best = Some((menu.clone(), score));
+        }
+        if report.is_valid || attempt == 2 {
+            return Ok(menu);
+        }
+        current.prompt = format!("{}\n\nVERIFIKASI SISTEM (attempt {}/3): {}\nAngka aktual dihitung dari database SQLite setelah gram diskalakan, bukan dari perkiraan AI. Perbaiki gram atau pilih makanan lain berdasarkan data database. Jangan keluarkan makanan yang tidak ada di database.", current.prompt, attempt + 1, report.feedback);
+    }
+    Ok(best.map(|(menu, _)| menu).unwrap_or_default())
+}
+
+async fn generate_content(client: &Client, request: &AiRequest) -> Result<String, AppError> {
+    match request.provider.trim().to_ascii_lowercase().as_str() {
+        "google" | "gemini" => google::generate(client, request).await,
+        "anthropic" | "claude" => anthropic::generate(client, request).await,
+        "openai" | "openrouter" | "custom" => openai::generate(client, request).await,
+        _ => Err(AppError::Validation("unsupported AI provider".into())),
+    }
+}
+
+fn merge_revision_menu(
+    request: &AiRequest,
+    mut mapped: Vec<MappedMealItem>,
+) -> Vec<MappedMealItem> {
+    if !request.revision || explicit_delete_requested(&request.prompt) {
+        return mapped;
+    }
+    let Ok(active) = serde_json::from_str::<Vec<MappedMealItem>>(&request.active_menu) else {
+        return mapped;
     };
-    let plan = prompt::parse_meal_plan(&content)?;
-    let mapped = meals::map_ai_items(storage, &plan).await?;
-    Ok(normalize_menu_to_tdee(mapped, request.target_tdee))
+    for previous in active {
+        let exists = mapped.iter().any(|item| {
+            item.matched_food_id == previous.matched_food_id && item.meal_type == previous.meal_type
+        });
+        if !exists {
+            mapped.push(previous);
+        }
+    }
+    mapped
+}
+
+fn explicit_delete_requested(prompt: &str) -> bool {
+    let value = prompt.to_ascii_lowercase();
+    [
+        "hapus",
+        "menghapus",
+        "hilangkan",
+        "buang",
+        "remove",
+        "delete",
+    ]
+    .iter()
+    .any(|word| value.contains(word))
+}
+
+#[derive(Debug, Clone)]
+pub struct VerificationReport {
+    pub is_valid: bool,
+    pub feedback: String,
+    pub error_score: f64,
+}
+
+pub fn verify_menu_targets(
+    menu: &[MappedMealItem],
+    target_tdee: i32,
+    target_carbs: i32,
+    target_protein: i32,
+    target_fat: i32,
+) -> VerificationReport {
+    let totals = menu
+        .iter()
+        .fold((0.0, 0.0, 0.0, 0.0), |(kcal, carbs, protein, fat), item| {
+            (
+                kcal + item.calories,
+                carbs + item.carbohydrate,
+                protein + item.protein,
+                fat + item.fat,
+            )
+        });
+    let targets = [
+        ("Energi", totals.0, target_tdee),
+        ("Karbohidrat", totals.1, target_carbs),
+        ("Protein", totals.2, target_protein),
+        ("Lemak", totals.3, target_fat),
+    ];
+    let mut feedback = Vec::new();
+    let mut error_score = 0.0;
+    for (name, actual, target) in targets {
+        let difference = (actual - target as f64).abs();
+        let tolerance = (target as f64 * 0.15).max(5.0);
+        error_score += difference / (target as f64).max(1.0);
+        if difference > tolerance {
+            feedback.push(format!(
+                "{name} aktual {:.1}, target {}, selisih {:.1}",
+                actual,
+                target,
+                actual - target as f64
+            ));
+        }
+    }
+    VerificationReport {
+        is_valid: !menu.is_empty() && feedback.is_empty(),
+        feedback: if feedback.is_empty() {
+            "Semua target terpenuhi.".into()
+        } else {
+            feedback.join("; ")
+        },
+        error_score,
+    }
 }
 
 fn normalize_menu_to_tdee(mut menu: Vec<MappedMealItem>, target_tdee: i32) -> Vec<MappedMealItem> {
@@ -303,38 +566,120 @@ fn is_private_ipv6(address: Ipv6Addr) -> bool {
         || (address.segments()[0] & 0xffc0) == 0xfe80
 }
 
-pub(crate) fn request_error(status: reqwest::StatusCode) -> AppError {
-    AppError::Ai(format!("AI provider returned HTTP {}", status.as_u16()))
+pub fn request_error(status: reqwest::StatusCode, body: &str, secret: &str) -> AppError {
+    let detail = provider_error_detail(body, secret);
+    if detail.is_empty() {
+        AppError::Ai(format!("AI provider returned HTTP {}", status.as_u16()))
+    } else {
+        AppError::Ai(format!(
+            "AI provider returned HTTP {}: {}",
+            status.as_u16(),
+            detail
+        ))
+    }
+}
+
+fn sanitize_error(value: &str) -> String {
+    value
+        .replace("Bearer ", "Bearer [REDACTED]")
+        .chars()
+        .take(300)
+        .collect()
+}
+
+fn provider_error_detail(body: &str, secret: &str) -> String {
+    let detail = serde_json::from_str::<Value>(body)
+        .ok()
+        .and_then(|value| {
+            ["/error/message", "/error", "/message", "/detail"]
+                .iter()
+                .find_map(|path| {
+                    value
+                        .pointer(path)
+                        .and_then(Value::as_str)
+                        .map(str::to_owned)
+                })
+        })
+        .unwrap_or_else(|| body.trim().replace(['\n', '\r'], " "));
+    let sanitized = detail
+        .replace("Bearer ", "Bearer [REDACTED]")
+        .replace(secret, "[REDACTED]");
+    sanitized.chars().take(300).collect()
+}
+
+pub fn parse_any_response(body: &str, fields: &[&str]) -> Result<String, AppError> {
+    for field in fields {
+        if let Ok(value) = parse_response(body, field) {
+            return Ok(value);
+        }
+    }
+    Err(AppError::Ai(
+        "AI provider response is missing content".into(),
+    ))
 }
 
 pub(crate) fn parse_response(body: &str, field: &str) -> Result<String, AppError> {
     let value: Value = serde_json::from_str(body)
         .map_err(|_| AppError::Ai("AI provider returned malformed JSON".into()))?;
-    value
-        .pointer(field)
-        .and_then(Value::as_str)
+    extract_text_value(value.pointer(field))
         .filter(|value| !value.trim().is_empty())
-        .map(str::to_owned)
         .ok_or_else(|| AppError::Ai("AI provider response is missing content".into()))
+}
+
+fn extract_text_value(value: Option<&Value>) -> Option<String> {
+    let value = value?;
+    if let Some(text) = value.as_str() {
+        return Some(text.to_owned());
+    }
+    if let Some(items) = value.as_array() {
+        let text = items
+            .iter()
+            .filter_map(|item| {
+                item.as_str()
+                    .map(str::to_owned)
+                    .or_else(|| item.get("text").and_then(Value::as_str).map(str::to_owned))
+            })
+            .collect::<Vec<_>>()
+            .join("");
+        if !text.is_empty() {
+            return Some(text);
+        }
+    }
+    for key in ["text", "content", "parts", "output_text"] {
+        if let Some(text) = extract_text_value(value.get(key)) {
+            return Some(text);
+        }
+    }
+    None
 }
 
 pub(crate) async fn send_json<T: Serialize>(
     _client: &Client,
     request: reqwest::RequestBuilder,
     payload: &T,
+    secret: &str,
 ) -> Result<String, AppError> {
     let response = request
+        .header(reqwest::header::ACCEPT_ENCODING, "identity")
         .json(payload)
         .send()
         .await
-        .map_err(|_| AppError::Ai("AI provider request failed".into()))?;
+        .map_err(|error| {
+            AppError::Ai(format!(
+                "AI provider request failed: {}",
+                sanitize_error(&error.to_string())
+            ))
+        })?;
     let status = response.status();
-    let body = response
-        .text()
-        .await
-        .map_err(|_| AppError::Ai("AI provider response could not be read".into()))?;
+    let body = String::from_utf8_lossy(&response.bytes().await.map_err(|error| {
+        AppError::Ai(format!(
+            "AI provider response could not be read: {}",
+            sanitize_error(&error.to_string())
+        ))
+    })?)
+    .into_owned();
     if !status.is_success() {
-        return Err(request_error(status));
+        return Err(request_error(status, &body, secret));
     }
     Ok(body)
 }

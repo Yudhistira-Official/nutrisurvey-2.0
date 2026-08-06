@@ -1,13 +1,26 @@
 use crate::{error::AppError, models::AiRequest};
 use serde_json::Value;
 
-pub(crate) fn build(request: &AiRequest) -> String {
+pub fn build(request: &AiRequest) -> String {
+    let active_menu = if request.active_menu.trim().is_empty() {
+        "[]"
+    } else {
+        request.active_menu.trim()
+    };
+    let revision_rules = if request.revision {
+        "MODE REVISI: gunakan menu aktif sebagai sumber kebenaran. Pertahankan semua item lama dan ubah hanya suggested_grams bila itu cukup untuk mencapai target. Tambahkan makanan baru hanya bila perubahan gram tidak cukup untuk memenuhi makro. Jangan hapus item lama kecuali instruksi user secara eksplisit meminta hapus/hilangkan item tertentu. Kembalikan meal_plan lengkap setelah perubahan."
+    } else {
+        "MODE PEMBUATAN AWAL: susun menu baru sesuai asesmen dan target."
+    };
     format!(
-        "Anda adalah Senior Clinical Dietitian yang mengikuti PAGT/ADIME dan instruksi Nutrisionist Klinis. Data klinis terverifikasi dari Kalkulator TDEE adalah sumber utama untuk IMT, klasifikasi gizi, BB referensi, dan kebutuhan energi; jangan tanyakan ulang data tersebut. Untuk overweight/obesitas gunakan defisit aman; untuk malnutrisi perhatikan risiko refeeding; untuk diabetes, hipertensi, CKD, atau kondisi lain ikuti batasan klinis yang relevan. Gunakan asesmen FH (pola makan, alergi, pantangan, suka/tidak suka), CH (diagnosis, obat, akses bahan), BD (hasil lab bila relevan), dan PD (edema, massa otot/lemak, tanda defisiensi bila relevan). Jangan mengarang data yang tidak diberikan. Susun menu hanya setelah asesmen cukup, sesuaikan kondisi klinis, gunakan sistem penukar bahan makanan, dan sertakan alasan klinis singkat. Untuk CKD, diabetes, hipertensi, obesitas, atau malnutrisi ikuti batasan klinis yang relevan. Rencana ini edukatif dan bukan pengganti konsultasi dokter/ahli gizi.\nBuat rencana makan harian untuk target {} kkal.\nTarget makro absolut: Karbohidrat {}g, Protein {}g, Lemak {}g.\nInstruksi tambahan dan hasil asesmen user:\n{}\nWaktu makan WAJIB menggunakan kategori berikut SAJA: {}.\nBagilah makanan ke dalam kategori-kategori tersebut secara logis. DILARANG menggunakan istilah waktu makan lain di luar daftar tersebut.\nKembalikan hanya JSON valid dengan bentuk:\n{{\"meal_plan\":[{{\"meal_type\":\"Makan Pagi\",\"food_keyword\":\"Dada Ayam\",\"suggested_grams\":100,\"reasoning\":\"alasan singkat\"}}]}}\nfood_keyword harus berupa nama bahan/makanan dalam bahasa Indonesia untuk dicocokkan dengan database SQLite internal.\nJangan tambah markdown, komentar, atau teks di luar JSON.",
+        "Anda adalah Senior Clinical Dietitian yang mengikuti PAGT/ADIME dan instruksi Nutrisionist Klinis. Pilih makanan hanya dari KATALOG DATABASE SQLITE di bawah. Angka katalog adalah nilai per serving dan hanya referensi pemilihan; verifikasi final dilakukan sistem setelah gram diterapkan. Jangan gunakan nama makanan di luar katalog. Data klinis terverifikasi dari Kalkulator TDEE adalah sumber utama untuk IMT, klasifikasi gizi, BB referensi, dan kebutuhan energi; jangan tanyakan ulang data tersebut. Untuk overweight/obesitas gunakan defisit aman; untuk malnutrisi perhatikan risiko refeeding; untuk diabetes, hipertensi, CKD, atau kondisi lain ikuti batasan klinis yang relevan. Gunakan asesmen FH (pola makan, alergi, pantangan, suka/tidak suka), CH (diagnosis, obat, akses bahan), BD (hasil lab bila relevan), dan PD (edema, massa otot/lemak, tanda defisiensi bila relevan). Jangan mengarang data yang tidak diberikan. Susun menu hanya setelah asesmen cukup, sesuaikan kondisi klinis, gunakan sistem penukar bahan makanan, dan sertakan alasan klinis singkat. Rencana ini edukatif dan bukan pengganti konsultasi dokter/ahli gizi.\nBuat rencana makan harian untuk target {} kkal.\nTarget makro absolut: Karbohidrat {}g, Protein {}g, Lemak {}g.\n{}\nKATALOG DATABASE SQLITE (pilih hanya dari sini):\n{}\nMenu aktif yang wajib dipertahankan kecuali user meminta penghapusan eksplisit:\n{}\nInstruksi tambahan dan hasil asesmen user:\n{}\nWaktu makan WAJIB menggunakan kategori berikut SAJA: {}.\nBagilah makanan ke dalam kategori-kategori tersebut secara logis. DILARANG menggunakan istilah waktu makan lain di luar daftar tersebut.\nKembalikan hanya JSON valid dengan bentuk:\n{{\"meal_plan\":[{{\"meal_type\":\"Makan Pagi\",\"food_keyword\":\"Dada Ayam\",\"suggested_grams\":100,\"reasoning\":\"alasan singkat\"}}]}}\nfood_keyword harus berupa nama bahan/makanan dalam bahasa Indonesia untuk dicocokkan dengan database SQLite internal.\nJangan tambah markdown, komentar, atau teks di luar JSON.",
         request.target_tdee,
         request.target_carbs,
         request.target_protein,
         request.target_fat,
+        revision_rules,
+        request.candidate_catalog.trim(),
+        active_menu,
         if request.prompt.trim().is_empty() { "Tidak ada instruksi tambahan" } else { request.prompt.trim() },
         request.available_meal_types.join(", "),
     )
@@ -15,7 +28,8 @@ pub(crate) fn build(request: &AiRequest) -> String {
 
 pub fn parse_meal_plan(content: &str) -> Result<Vec<crate::models::AiMealInput>, AppError> {
     let json = extract_json(content)?;
-    let value: Value = serde_json::from_str(&json)
+    let repaired = repair_json(&json);
+    let value: Value = serde_json::from_str(&repaired)
         .map_err(|_| AppError::Ai("AI meal plan JSON is malformed".into()))?;
     let plan = value
         .get("meal_plan")
@@ -58,6 +72,17 @@ pub fn parse_meal_plan(content: &str) -> Result<Vec<crate::models::AiMealInput>,
         return Err(AppError::Ai("AI meal plan returned no valid items".into()));
     }
     Ok(items)
+}
+
+fn repair_json(value: &str) -> String {
+    let mut repaired = value
+        .replace("```json", "")
+        .replace("```JSON", "")
+        .replace("```", "");
+    while repaired.contains(",}") || repaired.contains(",]") {
+        repaired = repaired.replace(",}", "}").replace(",]", "]");
+    }
+    repaired.trim().to_owned()
 }
 
 fn extract_json(content: &str) -> Result<String, AppError> {

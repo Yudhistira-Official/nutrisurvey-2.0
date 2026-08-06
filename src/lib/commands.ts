@@ -34,6 +34,7 @@ export function createCommandAdapters(invokeFn: CommandInvoker = invokeCommand) 
     exportToWord: (request: ExportRequest) => invokeFn<ExportResult>('export_word', { request }),
     saveProject: (project: ProjectFile) => invokeFn<boolean>('project_save', { project }),
     openProject: () => invokeFn<ProjectFile | null>('project_open'),
+    openProjectPath: (path: string) => invokeFn<ProjectFile>('project_open_path', { path }),
   };
 }
 
@@ -49,6 +50,10 @@ export function recordFileHistory(item: FileHistoryItem): Promise<void> {
 
 export function openExistingFile(path: string): Promise<void> {
   return invokeCommand<void>('open_existing_file', { path });
+}
+
+export function openProjectPath(path: string): Promise<ProjectFile> {
+  return invokeCommand<ProjectFile>('project_open_path', { path });
 }
 
 export function getFoodStatus(): Promise<FoodStatus> {
@@ -93,6 +98,11 @@ export function generateAiMenu(request: {
   targetProtein: number;
   targetFat: number;
   prompt: string;
+  activeMenu?: AiMealRow[];
+  revision?: boolean;
+  verifyMenu?: boolean;
+  candidateCatalog?: string;
+  requestId?: string;
   availableMealTypes: string[];
   aiConfig: AiConfig;
 }): Promise<AiMealRow[]> {
@@ -103,6 +113,11 @@ export function generateAiMenu(request: {
       targetProtein: request.targetProtein,
       targetFat: request.targetFat,
       prompt: request.prompt,
+      activeMenu: JSON.stringify(request.activeMenu || []),
+      revision: request.revision || false,
+      verifyMenu: request.verifyMenu || false,
+      candidateCatalog: request.candidateCatalog || '',
+      requestId: request.requestId || '',
       availableMealTypes: request.availableMealTypes,
       provider: request.aiConfig.provider,
       model: request.aiConfig.model,
@@ -112,12 +127,21 @@ export function generateAiMenu(request: {
   });
 }
 
+export function cancelAiRequest(requestId: string): Promise<void> {
+  return invokeCommand<void>('cancel_ai_request', { requestId });
+}
+
 export function streamAiMenu(request: {
   targetTDEE: number;
   targetCarbs: number;
   targetProtein: number;
   targetFat: number;
   prompt: string;
+  activeMenu?: AiMealRow[];
+  revision?: boolean;
+  verifyMenu?: boolean;
+  candidateCatalog?: string;
+  requestId?: string;
   availableMealTypes: string[];
   aiConfig: AiConfig;
   onToken: (token: string) => void;
@@ -131,6 +155,11 @@ export function streamAiMenu(request: {
       targetProtein: request.targetProtein,
       targetFat: request.targetFat,
       prompt: request.prompt,
+      activeMenu: JSON.stringify(request.activeMenu || []),
+      revision: request.revision || false,
+      verifyMenu: request.verifyMenu || false,
+      candidateCatalog: request.candidateCatalog || '',
+      requestId: request.requestId || '',
       availableMealTypes: request.availableMealTypes,
       provider: request.aiConfig.provider,
       model: request.aiConfig.model,

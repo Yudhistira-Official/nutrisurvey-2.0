@@ -1,4 +1,8 @@
-use nutrisurvey_lib::{ai, models::AiRequest, storage::Storage};
+use nutrisurvey_lib::{
+    ai, foods,
+    models::{AiRequest, MappedMealItem},
+    storage::Storage,
+};
 use reqwest::Client;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -55,6 +59,11 @@ fn request(base_url: String, provider: &str) -> AiRequest {
         target_protein: 100,
         target_fat: 60,
         prompt: "menu rendah gula".into(),
+        active_menu: "[]".into(),
+        revision: false,
+        verify_menu: false,
+        candidate_catalog: String::new(),
+        request_id: String::new(),
         available_meal_types: vec!["Sarapan".into()],
         provider: provider.into(),
         model: "test-model".into(),
@@ -64,6 +73,60 @@ fn request(base_url: String, provider: &str) -> AiRequest {
 }
 
 const PLAN: &str = r#"{"meal_plan":[{"meal_type":"Sarapan","food_keyword":"Nasi","suggested_grams":100,"reasoning":"seimbang"}]}"#;
+
+#[test]
+fn zero_macro_foods_are_excluded_except_water() {
+    assert!(foods::is_nutritionally_empty(
+        "Snack",
+        "Makanan",
+        &std::collections::HashMap::from([
+            ("energi".into(), 0.0),
+            ("protein".into(), 0.0),
+            ("lemak total".into(), 0.0),
+            ("karbohidrat total".into(), 0.0),
+        ])
+    ));
+    assert!(!foods::is_nutritionally_empty(
+        "Snack",
+        "Makanan",
+        &std::collections::HashMap::new()
+    ));
+    assert!(foods::is_allowed_zero_food(
+        "Air putih / air mineral / air minum"
+    ));
+    assert!(!foods::is_allowed_zero_food("Teh tawar"));
+}
+
+#[test]
+fn prompt_includes_database_candidate_catalog() {
+    let mut request = request("https://example.test".into(), "openai");
+    request.candidate_catalog = "Nasi | serving 100 g | energi 130".into();
+    let prompt = ai::prompt::build(&request);
+    assert!(prompt.contains("KATALOG DATABASE SQLITE"));
+    assert!(prompt.contains("Nasi | serving 100 g"));
+}
+
+#[test]
+fn macro_verification_reports_target_gaps() {
+    let items = vec![MappedMealItem {
+        meal_type: "Sarapan".into(),
+        requested_keyword: "Nasi".into(),
+        matched_food_id: 1,
+        matched_food_name: "Nasi".into(),
+        suggested_grams: 100,
+        reference_grams: 100.0,
+        calories: 400.0,
+        protein: 10.0,
+        fat: 5.0,
+        carbohydrate: 70.0,
+        nutrients: std::collections::HashMap::new(),
+        reasoning: "".into(),
+    }];
+    let report = ai::verify_menu_targets(&items, 2000, 250, 100, 60);
+    assert!(!report.is_valid);
+    assert!(report.feedback.contains("Protein"));
+    assert!(report.feedback.contains("Karbohidrat"));
+}
 
 #[tokio::test]
 async fn openai_compatible_provider_posts_schema_prompt_and_parses_plan() {
@@ -88,6 +151,13 @@ async fn google_provider_uses_supported_key_header_and_fenced_json() {
     assert!(raw_request.contains("/models/test-model:generateContent"));
     assert!(raw_request.contains("x-goog-api-key: super-secret-key"));
     assert!(!raw_request.contains("?key=super-secret-key"));
+}
+
+#[tokio::test]
+async fn verified_generation_retries_at_most_three_times() {
+    let report = ai::verify_menu_targets(&[], 2000, 250, 100, 60);
+    assert!(!report.is_valid);
+    assert!(report.error_score > 0.0);
 }
 
 #[tokio::test]
@@ -161,6 +231,46 @@ async fn malformed_json_missing_fields_and_http_errors_are_redacted() {
     assert!(!error.contains("super-secret-key"));
     assert!(error.contains("HTTP 500"));
     task.await.unwrap();
+}
+
+#[test]
+fn verification_retry_does_not_mix_attempt_output() {
+    let source = std::fs::read_to_string("src/ai/mod.rs").unwrap();
+    assert!(source.contains("if attempt == 0"));
+    assert!(source.contains("parse_meal_plan"));
+}
+
+#[test]
+fn response_parser_accepts_common_json_noise() {
+    let content = "Here is plan:\n```json\n{\"meal_plan\":[{\"meal_type\":\"Sarapan\",\"food_keyword\":\"Nasi\",\"suggested_grams\":100,\"reasoning\":\"ok\",}] }\n```\n";
+    assert_eq!(ai::prompt::parse_meal_plan(content).unwrap().len(), 1);
+}
+
+#[test]
+fn response_parser_accepts_array_and_output_text_formats() {
+    let array = r#"{"choices":[{"message":{"content":[{"type":"text","text":"hello"}]}}]}"#;
+    assert_eq!(
+        ai::parse_any_response(array, &["/choices/0/message/content"]).unwrap(),
+        "hello"
+    );
+    let output = r#"{"output_text":"hello"}"#;
+    assert_eq!(
+        ai::parse_any_response(output, &["/output_text"]).unwrap(),
+        "hello"
+    );
+}
+
+#[test]
+fn provider_errors_keep_safe_server_detail() {
+    let error = ai::request_error(
+        reqwest::StatusCode::TOO_MANY_REQUESTS,
+        r#"{"error":{"message":"quota exceeded"}}"#,
+        "super-secret-key",
+    )
+    .to_string();
+    assert!(error.contains("HTTP 429"));
+    assert!(error.contains("quota exceeded"));
+    assert!(!error.contains("super-secret-key"));
 }
 
 #[test]

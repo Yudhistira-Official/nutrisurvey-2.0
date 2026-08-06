@@ -114,8 +114,9 @@ test('native UI smoke covers readiness, search, recommendations, import, roundtr
 
   await page.getByRole('button', { name: 'Simpan Proyek' }).click();
   await expect(page.getByText('Proyek berhasil disimpan')).toBeVisible();
+  page.once('dialog', dialog => dialog.accept());
   await page.getByRole('button', { name: 'Buka Proyek' }).click();
-  await expect(page.getByText('Proyek berhasil diimpor')).toBeVisible();
+  await expect(page.getByText('Proyek berhasil dibuka')).toBeVisible();
 
   await page.getByRole('button', { name: 'Kalkulator TDEE' }).click();
   await page.getByRole('button', { name: 'Hitung & Terapkan' }).click();

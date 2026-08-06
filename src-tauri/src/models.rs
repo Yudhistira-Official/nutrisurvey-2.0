@@ -168,6 +168,16 @@ pub struct AiRequest {
     pub target_fat: i32,
     #[serde(default)]
     pub prompt: String,
+    #[serde(default)]
+    pub active_menu: String,
+    #[serde(default)]
+    pub revision: bool,
+    #[serde(default)]
+    pub verify_menu: bool,
+    #[serde(default)]
+    pub candidate_catalog: String,
+    #[serde(default)]
+    pub request_id: String,
     pub available_meal_types: Vec<String>,
     pub provider: String,
     pub model: String,

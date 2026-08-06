@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { calculateTotals, calculateMacroTargets, implementAiRows, moveFoodToMeal, parseProject, serializeProject } from '../src/lib/types.ts';
+import { calculateTotals, calculateMacroTargets, implementAiRows, moveFoodToMeal, moveFoodToMealAtPosition, parseProject, reorderFoods, reorderItems, serializeProject } from '../src/lib/types.ts';
 import { createCommandAdapters } from '../src/lib/commands.ts';
 import { classifyUiError } from '../src/lib/types.ts';
 import { createProjectFileAdapter } from '../src/lib/project.ts';
@@ -27,6 +27,20 @@ test('tdee calculator uses responsive paired panels and AF IF labels', () => {
   assert.match(source, /Pneumonia/);
   assert.match(source, /Input Manual/);
   assert.match(source, /isManualFactors \? <input/);
+});
+
+test('settings project history uses in-app project opener while reports use external opener', () => {
+  const source = readFileSync(new URL('../src/components/SettingsPanel.tsx', import.meta.url), 'utf8');
+  assert.match(source, /onOpenProjectPath/);
+  assert.match(source, /item\.kind === 'project'/);
+  assert.match(source, /openExistingFile/);
+});
+
+test('project open flow confirms before replacing dashboard state', () => {
+  const source = readFileSync(new URL('../src/app/page.tsx', import.meta.url), 'utf8');
+  assert.match(source, /Buka project ini/);
+  assert.match(source, /Data Dashboard saat ini akan diganti/);
+  assert.match(source, /openProjectPath/);
 });
 
 test('settings panels stretch to viewport height and equal height', () => {
@@ -126,11 +140,53 @@ test('recommendation add and drag move food to selected meal', () => {
   assert.equal(moveFoodToMeal([added], 'session-1', 'DINNER')[0].mealTime, 'DINNER');
 });
 
-test('AI preview implementation maps matched rows to dashboard meals', () => {
-  const rows = [{ meal_type: 'Makan Pagi', requested_keyword: 'rice', matched_food_id: 7, matched_food_name: 'Rice', suggested_grams: 120, calories: 156, protein: 3, fat: 1, carbohydrate: 34, nutrients: {}, reasoning: 'fit' }];
-  const result = implementAiRows(rows, [{ id: 'BREAKFAST', label: 'Makan Pagi' }]);
-  assert.equal(result.added.length, 1);
-  assert.equal(result.added[0].mealTime, 'BREAKFAST');
+test('cross-meal food drop appends to destination meal', () => {
+  const foods = [
+    { id: 'food-1', name: 'Rice', amount: 100, servingSize: 100, servingUnit: 'g', servingsPerContainer: 1, mealTime: 'BREAKFAST', nutrients: {} },
+    { id: 'food-2', name: 'Egg', amount: 50, servingSize: 100, servingUnit: 'g', servingsPerContainer: 1, mealTime: 'DINNER', nutrients: {} },
+  ];
+  assert.deepEqual(moveFoodToMeal(foods, 'food-1', 'DINNER').map(food => [food.id, food.mealTime]), [
+    ['food-2', 'DINNER'],
+    ['food-1', 'DINNER'],
+  ]);
+});
+
+test('cross-meal food drop on row inserts at target position', () => {
+  const foods = [
+    { id: 'food-1', name: 'Rice', amount: 100, servingSize: 100, servingUnit: 'g', servingsPerContainer: 1, mealTime: 'BREAKFAST', nutrients: {} },
+    { id: 'food-2', name: 'Egg', amount: 50, servingSize: 100, servingUnit: 'g', servingsPerContainer: 1, mealTime: 'DINNER', nutrients: {} },
+    { id: 'food-3', name: 'Milk', amount: 200, servingSize: 100, servingUnit: 'ml', servingsPerContainer: 1, mealTime: 'DINNER', nutrients: {} },
+  ];
+  assert.deepEqual(moveFoodToMealAtPosition(foods, 'food-1', 'DINNER', 'food-3').map(food => [food.id, food.mealTime]), [
+    ['food-2', 'DINNER'],
+    ['food-1', 'DINNER'],
+    ['food-3', 'DINNER'],
+  ]);
+});
+
+test('AI preview implementation maps duplicate meal labels by occurrence', () => {
+  const rows = [
+    { meal_type: 'Selingan', requested_keyword: 'apple', matched_food_id: 7, matched_food_name: 'Apple', suggested_grams: 120, calories: 60, protein: 0, fat: 0, carbohydrate: 15, nutrients: {}, reasoning: 'fit' },
+    { meal_type: 'Selingan', requested_keyword: 'banana', matched_food_id: 8, matched_food_name: 'Banana', suggested_grams: 100, calories: 89, protein: 1, fat: 0, carbohydrate: 23, nutrients: {}, reasoning: 'fit' },
+  ];
+  const result = implementAiRows(rows, [{ id: 'SNACK-1', label: 'Selingan' }, { id: 'SNACK-2', label: 'Selingan' }]);
+  assert.deepEqual(result.added.map(food => food.mealTime), ['SNACK-1', 'SNACK-2']);
+});
+
+test('meal and food reorder use stable internal IDs', () => {
+  const meals = [{ id: 'SNACK-1', label: 'Selingan' }, { id: 'SNACK-2', label: 'Selingan' }, { id: 'DINNER', label: 'Makan Malam' }];
+  assert.deepEqual(reorderItems(meals, 'SNACK-2', 'DINNER').map(meal => meal.id), ['SNACK-1', 'DINNER', 'SNACK-2']);
+  const foods = [
+    { id: 'food-1', name: 'Apple', servingSize: 100, servingUnit: 'g', servingsPerContainer: 1, amount: 100, mealTime: 'SNACK-1', nutrients: {} },
+    { id: 'food-2', name: 'Pear', servingSize: 100, servingUnit: 'g', servingsPerContainer: 1, amount: 100, mealTime: 'SNACK-1', nutrients: {} },
+  ];
+  assert.deepEqual(reorderFoods(foods, 'food-2', 'food-1').map(food => food.id), ['food-2', 'food-1']);
+});
+
+test('project import rejects duplicate meal IDs while allowing duplicate labels', () => {
+  const project = { foods: [], meals: [{ id: 'SNACK-1', label: 'Selingan' }, { id: 'SNACK-2', label: 'Selingan' }], targets: { kcal: 0, carbs: 0, protein: 0, fat: 0 } };
+  assert.deepEqual(parseProject(serializeProject(project)).meals.map(meal => meal.label), ['Selingan', 'Selingan']);
+  assert.throws(() => parseProject(serializeProject({ ...project, meals: [{ id: 'SAME', label: 'Selingan' }, { id: 'SAME', label: 'Selingan' }] })), /tidak valid/);
 });
 
 test('report adapter invokes export command', async () => {
@@ -152,4 +208,80 @@ test('responsive stylesheet defines mobile sidebar and grid layout', () => {
   assert.match(css, /\.sidebar[^}]*width:100%/);
   assert.match(css, /\.dashboard-grid[^}]*grid-template-columns:1fr/);
   assert.match(css, /\.ai-grid[^}]*grid-template-columns:1fr/);
+});
+
+test('AI streaming path emits incremental chunks for non-streaming providers', () => {
+  const source = readFileSync(new URL('../src-tauri/src/ai/mod.rs', import.meta.url), 'utf8');
+  assert.match(source, /send_stream_chunks\(&channel, &content\)/);
+  assert.match(source, /chars\.chunks\(48\)/);
+  assert.match(source, /channel\.send\(chunk\.iter\(\)\.collect\(\)\)/);
+});
+
+test('New Chat cancels active AI request and invalidates stale lifecycle', () => {
+  const source = readFileSync(new URL('../src/components/AiMealPlanner.tsx', import.meta.url), 'utf8');
+  const commands = readFileSync(new URL('../src/lib/commands.ts', import.meta.url), 'utf8');
+  assert.match(source, /cancelAiRequest/);
+  assert.match(source, /activeRequestId/);
+  assert.match(commands, /cancel_ai_request/);
+});
+
+test('AI stream failure creates one retryable error bubble', () => {
+  const source = readFileSync(new URL('../src/components/AiMealPlanner.tsx', import.meta.url), 'utf8');
+  assert.match(source, /const errorId = chatId\(\)/);
+  assert.match(source, /current\.filter\(entry => entry\.id !== streamId\), \{ id: errorId/);
+  assert.doesNotMatch(source, /else \{\s*setChat\(current => \[\.\.\.current, \{ id: chatId\(\), role: 'assistant' as const, content: message/);
+});
+
+test('AI failures keep retryable error bubble visible after stream failure', () => {
+  const source = readFileSync(new URL('../src/components/AiMealPlanner.tsx', import.meta.url), 'utf8');
+  assert.match(source, /onNotify\(/);
+  assert.match(source, /formatAiError/);
+  assert.match(source, /isError: true, retryPrompt: instruction/);
+  assert.match(source, /setChat\(current => current\.map\(entry => entry\.id === errorId/);
+});
+
+test('AI generation requests database-backed verification with bounded retries', () => {
+  const source = readFileSync(new URL('../src/components/AiMealPlanner.tsx', import.meta.url), 'utf8');
+  const commands = readFileSync(new URL('../src/lib/commands.ts', import.meta.url), 'utf8');
+  assert.match(source, /verifyMenu: true/);
+  assert.match(commands, /candidateCatalog/);
+  assert.match(commands, /verifyMenu/);
+});
+
+test('AI revisions send active menu context and explicit deletion rules', () => {
+  const source = readFileSync(new URL('../src/components/AiMealPlanner.tsx', import.meta.url), 'utf8');
+  const prompt = readFileSync(new URL('../src-tauri/src/ai/prompt.rs', import.meta.url), 'utf8');
+  assert.match(source, /activeMenu/);
+  assert.match(source, /revision/);
+  assert.match(prompt, /Menu aktif yang wajib dipertahankan/);
+  assert.match(prompt, /hapus|menghapus/);
+});
+
+test('dashboard exposes clear drag and drop targets for meal sections', () => {
+  const source = readFileSync(new URL('../src/components/Dashboard.tsx', import.meta.url), 'utf8');
+  assert.match(source, /draggable/);
+  assert.match(source, /drop-zone|drop target/i);
+  assert.match(source, /onDragEnd/);
+});
+
+test('stream parser accepts data lines without a space and flushes final chunk', () => {
+  const source = readFileSync(new URL('../src-tauri/src/ai/openai.rs', import.meta.url), 'utf8');
+  assert.match(source, /strip_prefix\("data:"\)/);
+  assert.match(source, /buf\.trim\(\)\.is_empty\(\)/);
+});
+
+test('new chat atomically clears persisted history and invalidates stale requests', () => {
+  const source = readFileSync(new URL('../src/components/AiMealPlanner.tsx', import.meta.url), 'utf8');
+  assert.match(source, /sessionStorage\.removeItem\(storageKey\)/);
+  assert.match(source, /requestGeneration/);
+  assert.match(source, /setChat\(\[\{ id: chatId\(\), role: 'assistant'/);
+});
+
+test('AI generation resets streaming state after failure so retry is clickable', () => {
+  const source = readFileSync(new URL('../src/components/AiMealPlanner.tsx', import.meta.url), 'utf8');
+  assert.match(source, /setStreamingId\(null\)/);
+  assert.match(source, /setStreamingId\(null\)/);
+  assert.match(source, /isError: true, retryPrompt: instruction/);
+  assert.match(source, /retryMessage/);
+  assert.match(source, /disabled=\{loading \|\| streamingId !== null\}/);
 });

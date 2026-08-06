@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { generateAiMenu, getAiDefaultInfo, loadAiKey, streamAiMenu } from '../lib/commands';
+import { cancelAiRequest, generateAiMenu, getAiDefaultInfo, loadAiKey, streamAiMenu } from '../lib/commands';
 import type { AiConfig, AiMealRow, MealTime, Targets, TdeeClinicalContext } from '../lib/types';
 
 type ChatEntry = { role: 'user' | 'assistant'; content: string; streaming?: boolean; isError?: boolean; retryPrompt?: string; id: number };
@@ -23,6 +23,16 @@ const initialChat: ChatEntry[] = [{ id: 0, role: 'assistant', content: 'Halo, sa
 let nextChatId = 1;
 const chatId = () => nextChatId++;
 
+const formatAiError = (error: unknown) => {
+  const value = error instanceof Error ? error.message : typeof error === 'string' ? error : error && typeof error === 'object' ? JSON.stringify(error) : '';
+  let message = value || 'Kesalahan AI tidak diketahui';
+  try {
+    const parsed = JSON.parse(message) as { kind?: string; message?: string };
+    if (parsed.message) message = `${parsed.kind ? `[${parsed.kind}] ` : ''}${parsed.message}`;
+  } catch { }
+  return `AI gagal: ${message.slice(0, 500)}`;
+};
+
 export default function AiMealPlanner({ meals, targets, clinicalContext, onImplement, onNotify }: { meals: MealTime[]; targets: Targets; clinicalContext: TdeeClinicalContext | null; onImplement: (rows: AiMealRow[]) => void; onNotify: (message: string) => void }) {
   const [config, setConfig] = useState<AiConfig>({ provider: 'openrouter', model: '', apiKey: '', baseUrl: '' });
   const [plannerClinicalContext, setPlannerClinicalContext] = useState<TdeeClinicalContext | null>(clinicalContext);
@@ -39,6 +49,9 @@ export default function AiMealPlanner({ meals, targets, clinicalContext, onImple
   const [streamingId, setStreamingId] = useState<number | null>(null);
   const [sessionHydrated, setSessionHydrated] = useState(false);
   const chatHistoryRef = useRef<HTMLDivElement>(null);
+  const requestInFlight = useRef(false);
+  const requestGeneration = useRef(0);
+  const activeRequestId = useRef<string | null>(null);
   const sessionState = useRef<PlannerSession>({ rows, chat, assessmentAnswers, assessmentVisible, planStarted, clinicalContext: plannerClinicalContext });
 
   useEffect(() => {
@@ -102,9 +115,10 @@ export default function AiMealPlanner({ meals, targets, clinicalContext, onImple
     setChat(current => current.map(entry => entry.id === entryId ? { ...entry, content: entry.content === 'AI sedang menyusun...' ? plainToken : entry.content + plainToken, streaming: true } : entry));
   };
 
-  const finishStream = (entryId: number, message: string) => {
+  const finishStream = (entryId: number, message: string, generation = requestGeneration.current) => {
     let index = 0;
     const timer = window.setInterval(() => {
+      if (generation !== requestGeneration.current) { window.clearInterval(timer); return; }
       index = Math.min(message.length, index + Math.max(2, Math.ceil(message.length / 35)));
       setChat(current => current.map(entry => entry.id === entryId ? { ...entry, content: message.slice(0, index), streaming: true } : entry));
       if (index >= message.length) {
@@ -146,45 +160,75 @@ export default function AiMealPlanner({ meals, targets, clinicalContext, onImple
   };
 
   const generate = async (instruction: string, userAlreadyAdded = false) => {
-    if (contextLimitReached) return;
+    if (contextLimitReached || requestInFlight.current) return;
+    requestInFlight.current = true;
+    const generation = requestGeneration.current;
+    if (contextLimitReached) {
+      requestInFlight.current = false;
+      return;
+    }
     if (!plannerClinicalContext || !config.model || (config.provider !== 'builtin_default' && !config.apiKey) || effectiveTargets.kcal <= 0) {
-      setChat(current => [...current, { id: chatId(), role: 'assistant' as const, content: !plannerClinicalContext ? 'Hitung TDEE dan diagnosis gizi terlebih dahulu.' : 'Konfigurasi AI wajib disiapkan di Pengaturan.', isError: true, retryPrompt: instruction }]);
+      const validationMessage = !plannerClinicalContext ? 'Hitung TDEE dan diagnosis gizi terlebih dahulu.' : 'Konfigurasi AI wajib disiapkan di Pengaturan.';
+      setChat(current => [...current, { id: chatId(), role: 'assistant' as const, content: validationMessage, isError: true, retryPrompt: instruction }]);
+      onNotify(`AI gagal: ${validationMessage}`);
+      requestInFlight.current = false;
       return;
     }
     setLoading(true);
     if (!userAlreadyAdded) setChat(current => [...current, { id: chatId(), role: 'user' as const, content: instruction }]);
     const assessment = assessmentAnswers.map(answer => `${answer.id}: ${answer.value}`).join('\n');
-    const requestPrompt = `${clinicalSummary}\n\nAsesmen klinis tambahan pengguna:\n${assessment}\n\nInstruksi menu terbaru: ${instruction}`;
+    const isRevision = rows.length > 0;
+    const activeMenu = rows.map(row => ({ ...row }));
+    const requestPrompt = `${clinicalSummary}\n\nAsesmen klinis tambahan pengguna:\n${assessment}\n\nInstruksi menu terbaru: ${instruction}\n\n${isRevision ? 'Ini adalah revisi menu aktif. Pertahankan item lama, ubah gram terlebih dahulu, tambah makanan hanya bila makro belum tercapai, dan hapus hanya jika diminta eksplisit.' : 'Ini adalah pembuatan menu awal.'}`;
     const streamId = chatId();
+    const requestId = `ai-${chatId()}-${streamId}`;
+    activeRequestId.current = requestId;
     setStreamingId(streamId);
+    const errorId = chatId();
     setChat(current => [...current, { id: streamId, role: 'assistant' as const, content: 'AI sedang menyusun...', streaming: true }]);
     try {
-      const result = await streamAiMenu({ targetTDEE: Math.round(effectiveTargets.kcal), targetCarbs: Math.round(effectiveTargets.carbs), targetProtein: Math.round(effectiveTargets.protein), targetFat: Math.round(effectiveTargets.fat), prompt: requestPrompt, availableMealTypes: meals.map(meal => meal.label), aiConfig: { ...config, baseUrl }, onToken: token => streamAssistant(token, streamId) });
-      setRows(result);
-      finishStream(streamId, `Rencana makan selesai dibuat dengan ${result.length} item. Tinjau panel Rencana Menu, lalu tekan Terapkan ke Dashboard jika sudah sesuai.`);
+      const result = await streamAiMenu({ targetTDEE: Math.round(effectiveTargets.kcal), targetCarbs: Math.round(effectiveTargets.carbs), targetProtein: Math.round(effectiveTargets.protein), targetFat: Math.round(effectiveTargets.fat), prompt: requestPrompt, activeMenu, revision: isRevision, verifyMenu: true, requestId, availableMealTypes: meals.map(meal => meal.label), aiConfig: { ...config, baseUrl }, onToken: token => streamAssistant(token, streamId) });
+       if (generation !== requestGeneration.current) return;
+       setChat(current => current.filter(entry => entry.id !== errorId));
+       setRows(result);
+       finishStream(streamId, `Rencana makan selesai dibuat dengan ${result.length} item. Tinjau panel Rencana Menu, lalu tekan Terapkan ke Dashboard jika sudah sesuai.`, generation);
       setPrompt('');
     } catch (cause) {
-      const message = cause instanceof Error ? cause.message : 'Gagal membuat rencana menu';
-      setChat(current => current.filter(entry => entry.id !== streamId));
-      if (/NotAllowed|not found|channel|IPC|invoke|stream|request failed|network|timeout/i.test(message)) {
+      if (generation !== requestGeneration.current) return;
+        const message = formatAiError(cause);
+        onNotify(message);
+       setChat(current => [...current.filter(entry => entry.id !== streamId), { id: errorId, role: 'assistant' as const, content: message, isError: true, retryPrompt: instruction }]);
+       setStreamingId(null);
+       if (/NotAllowed|not found|channel|IPC|invoke|stream|request failed|response could not be read|decoding response body|body read|network|timeout/i.test(message)) {
         try {
-          const result = await generateAiMenu({ targetTDEE: Math.round(effectiveTargets.kcal), targetCarbs: Math.round(effectiveTargets.carbs), targetProtein: Math.round(effectiveTargets.protein), targetFat: Math.round(effectiveTargets.fat), prompt: requestPrompt, availableMealTypes: meals.map(meal => meal.label), aiConfig: { ...config, baseUrl } });
-          setRows(result);
-          setChat(current => [...current, { id: streamId, role: 'assistant', content: 'AI sedang menyusun...', streaming: true }]);
-          finishStream(streamId, `Rencana makan selesai dibuat dengan ${result.length} item. Tinjau panel Rencana Menu, lalu tekan Terapkan ke Dashboard.`);
+          const result = await generateAiMenu({ targetTDEE: Math.round(effectiveTargets.kcal), targetCarbs: Math.round(effectiveTargets.carbs), targetProtein: Math.round(effectiveTargets.protein), targetFat: Math.round(effectiveTargets.fat), prompt: requestPrompt, activeMenu, revision: isRevision, verifyMenu: true, requestId, availableMealTypes: meals.map(meal => meal.label), aiConfig: { ...config, baseUrl } });
+           if (generation !== requestGeneration.current) return;
+           setRows(result);
+           setChat(current => [...current, { id: streamId, role: 'assistant', content: 'AI sedang menyusun...', streaming: true }]);
+           finishStream(streamId, `Rencana makan selesai dibuat dengan ${result.length} item. Tinjau panel Rencana Menu, lalu tekan Terapkan ke Dashboard.`, generation);
           return;
         } catch (fallbackCause) {
-          const retryMessage = fallbackCause instanceof Error ? fallbackCause.message : message;
-          setChat(current => [...current, { id: chatId(), role: 'assistant' as const, content: retryMessage, isError: true, retryPrompt: instruction }]);
+          const retryMessage = formatAiError(fallbackCause);
+          onNotify(retryMessage);
+          setChat(current => current.map(entry => entry.id === errorId ? { ...entry, content: `${message}\n${retryMessage}`, isError: true, retryPrompt: instruction } : entry));
         }
-      } else {
-        setChat(current => [...current, { id: chatId(), role: 'assistant' as const, content: message, isError: true, retryPrompt: instruction }]);
       }
-    } finally { setLoading(false); }
+    } finally {
+      if (generation === requestGeneration.current) {
+        requestInFlight.current = false;
+        activeRequestId.current = null;
+        setLoading(false);
+      }
+    }
   };
 
   const startNewChat = () => {
+    if (activeRequestId.current) void cancelAiRequest(activeRequestId.current);
+    activeRequestId.current = null;
+    requestGeneration.current += 1;
+    requestInFlight.current = false;
     try { sessionStorage.removeItem(storageKey); } catch { }
+    setLoading(false);
     setRows([]);
     setChat([{ id: chatId(), role: 'assistant', content: 'Halo, saya siap membantu menyusun rencana makan klinis. Kita mulai dengan asesmen singkat agar menu aman dan sesuai kebutuhan Anda.' }]);
     setAssessmentAnswers([]);
@@ -197,7 +241,7 @@ export default function AiMealPlanner({ meals, targets, clinicalContext, onImple
   };
 
   const retryMessage = async (entry: ChatEntry) => {
-    if (!entry.retryPrompt || loading || streamingId !== null) return;
+    if (!entry.retryPrompt || requestInFlight.current || loading || streamingId !== null) return;
     setChat(current => current.filter(item => item.id !== entry.id));
     await generate(entry.retryPrompt, true);
   };
@@ -220,7 +264,7 @@ export default function AiMealPlanner({ meals, targets, clinicalContext, onImple
     <div className="ai-clinical-strip">{plannerClinicalContext ? <><div className="ai-clinical-row diagnosis"><div className="ai-clinical-cell"><small>Diagnosis Gizi</small><b>{plannerClinicalContext.assessment.nutritionClassification}</b></div><div className="ai-clinical-cell"><small>IMT</small><b>{plannerClinicalContext.assessment.bmi.toFixed(1)}</b></div><div className="ai-clinical-cell"><small>TDEE</small><b>{Math.round(plannerClinicalContext.assessment.totalDailyEnergyExpenditure).toLocaleString('id-ID')} kkal</b></div><div className="ai-clinical-cell"><small>BB Referensi</small><b>{plannerClinicalContext.assessment.referenceWeight.toFixed(1)} kg</b></div></div><div className="ai-clinical-row macros"><div className="ai-clinical-cell"><small>Target Energi</small><b>{Math.round(effectiveTargets.kcal).toLocaleString('id-ID')} <em>kkal</em></b></div><div className="ai-clinical-cell"><small>Protein</small><b>{Math.round(effectiveTargets.protein)} <em>g</em></b></div><div className="ai-clinical-cell"><small>Karbohidrat</small><b>{Math.round(effectiveTargets.carbs)} <em>g</em></b></div><div className="ai-clinical-cell"><small>Lemak</small><b>{Math.round(effectiveTargets.fat)} <em>g</em></b></div></div></> : <div className="ai-clinical-missing"><b>Data klinis belum tersedia</b><span>Hitung TDEE terlebih dahulu.</span></div>}</div>
     <div className="ai-planner-layout">
       <div className="card ai-plan-panel"><div className="ai-panel-header"><div><span className="eyebrow">AI generated plan</span><h3>Rencana Menu</h3></div>{rows.length > 0 && <button className="primary" onClick={() => onImplement(rows)}>Terapkan ke Dashboard</button>}</div>{rows.length === 0 ? <div className="ai-plan-empty"><div className="ai-empty-mark">✦</div><h4>Rencana menu akan muncul di sini</h4><p>Lengkapi asesmen dan minta AI membuat menu. Anda dapat meninjau hasil sebelum menerapkannya.</p></div> : <div className="ai-plan-list">{rows.map((row, index) => <div className="ai-plan-item" key={`${row.meal_type}-${row.matched_food_id}-${index}`}><div className="ai-plan-item-top"><div><small>{row.meal_type}</small><h4>{row.matched_food_name || row.requested_keyword}</h4></div><strong>{row.suggested_grams} g</strong></div><div className="ai-plan-item-meta"><span>{row.calories.toFixed(0)} kkal</span><span>Protein {row.protein.toFixed(1)} g</span><span>KH {row.carbohydrate.toFixed(1)} g</span><span>Lemak {row.fat.toFixed(1)} g</span></div><p>{row.reasoning}</p></div>)}</div>}{rows.length > 0 && <div className="ai-disclaimer">Rekomendasi bersifat edukatif dan bukan pengganti konsultasi dokter atau ahli gizi teregistrasi.</div>}</div>
-      <div className="card ai-conversation-panel"><div className="ai-chat-header"><div><span className="eyebrow">Personal dietitian</span><h3>Chat dengan AI</h3><p>Asesmen klinis sebelum rekomendasi menu</p></div><div className="ai-chat-header-actions"><button className="new-chat-btn" onClick={startNewChat}>+ New Chat</button><span className="ai-online"><i /> Online</span></div></div><div className="ai-assessment-progress">{assessmentSteps.map(step => <span className={answeredSteps.includes(step.id) ? 'done' : ''} key={step.id}><b>{step.id}</b>{step.label}</span>)}</div>{assessmentVisible && !assessmentComplete && currentAssessment && <div className={`ai-assessment-card ${assessmentExiting ? 'assessment-exiting' : ''}`}><div className="ai-assessment-card-head"><span>Langkah {assessmentAnswers.length + 1} dari {assessmentSteps.length}</span><b>{currentAssessment.id}</b></div><h4>{currentAssessment.title}</h4><p>{currentAssessment.hint}</p><textarea value={assessmentValue} onChange={event => setAssessmentValue(event.target.value)} placeholder="Tulis jawaban Anda..." rows={3} /><div className="ai-assessment-actions"><button className="secondary" onClick={() => answerAssessment('Tidak ada')}>Tidak Ada</button><button className="primary" disabled={!assessmentValue.trim()} onClick={() => answerAssessment(assessmentValue)}>Simpan Jawaban</button></div></div>}{assessmentComplete && !planStarted && <div className="ai-plan-cta"><div><b>Asesmen selesai</b><span>AI siap menyusun plan menu berdasarkan jawaban Anda.</span></div><button className="primary" disabled={!plannerClinicalContext} onClick={() => void startPlan()}>Buat Plan Menu Sekarang <span>↗</span></button></div>}{showChat && <><div className="ai-chat-history" ref={chatHistoryRef}>{chat.map((entry, index) => <div className={`ai-chat-message ${entry.role} ${entry.streaming ? 'message-streaming' : ''}`} key={entry.id}><div className="ai-chat-avatar">{entry.role === 'assistant' ? 'AI' : 'Anda'}</div><div className={`ai-chat-bubble ${entry.isError ? 'ai-error-bubble' : ''}`}>{entry.streaming && entry.content === 'AI sedang menyusun...' ? <div className="ai-streaming-status"><span>AI sedang menyusun</span><i /><i /><i /></div> : <p>{entry.content}{entry.streaming && <span className="stream-caret" />}</p>}{entry.isError && <button className="ai-retry-btn" aria-label="Ulangi permintaan" title="Ulangi permintaan" onClick={() => void retryMessage(entry)} disabled={loading}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8.1 8.1 0 0 0-15.5-2M4 5v4h4M4 13a8.1 8.1 0 0 0 15.5 2M20 19v-4h-4" /></svg></button>}</div></div>)}</div><div className="ai-chat-compose"><textarea value={prompt} onChange={event => setPrompt(event.target.value)} onKeyDown={event => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void sendMessage(); } }} placeholder="Tulis revisi atau perubahan pada plan menu..." rows={3} disabled={!assessmentComplete || contextLimitReached} /><button className="primary ai-send-btn" disabled={loading || !prompt.trim() || !assessmentComplete || streamingId !== null} onClick={() => void sendMessage()}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-label="Kirim"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg></button></div></>}{contextLimitReached && <div className="ai-context-limit">Kuota Melebihi Batas, Tolong Buat Percakapan Baru</div>}</div>
+      <div className="card ai-conversation-panel"><div className="ai-chat-header"><div><span className="eyebrow">Personal dietitian</span><h3>Chat dengan AI</h3><p>Asesmen klinis sebelum rekomendasi menu</p></div><div className="ai-chat-header-actions"><button className="new-chat-btn" onClick={startNewChat}>+ New Chat</button><span className="ai-online"><i /> Online</span></div></div><div className="ai-assessment-progress">{assessmentSteps.map(step => <span className={answeredSteps.includes(step.id) ? 'done' : ''} key={step.id}><b>{step.id}</b>{step.label}</span>)}</div>{assessmentVisible && !assessmentComplete && currentAssessment && <div className={`ai-assessment-card ${assessmentExiting ? 'assessment-exiting' : ''}`}><div className="ai-assessment-card-head"><span>Langkah {assessmentAnswers.length + 1} dari {assessmentSteps.length}</span><b>{currentAssessment.id}</b></div><h4>{currentAssessment.title}</h4><p>{currentAssessment.hint}</p><textarea value={assessmentValue} onChange={event => setAssessmentValue(event.target.value)} placeholder="Tulis jawaban Anda..." rows={3} /><div className="ai-assessment-actions"><button className="secondary" onClick={() => answerAssessment('Tidak ada')}>Tidak Ada</button><button className="primary" disabled={!assessmentValue.trim()} onClick={() => answerAssessment(assessmentValue)}>Simpan Jawaban</button></div></div>}{assessmentComplete && !planStarted && <div className="ai-plan-cta"><div><b>Asesmen selesai</b><span>AI siap menyusun plan menu berdasarkan jawaban Anda.</span></div><button className="primary" disabled={!plannerClinicalContext} onClick={() => void startPlan()}>Buat Plan Menu Sekarang <span>↗</span></button></div>}{showChat && <><div className="ai-chat-history" ref={chatHistoryRef}>{chat.map((entry, index) => <div className={`ai-chat-message ${entry.role} ${entry.streaming ? 'message-streaming' : ''}`} key={entry.id}><div className="ai-chat-avatar">{entry.role === 'assistant' ? 'AI' : 'Anda'}</div><div className={`ai-chat-bubble ${entry.isError ? 'ai-error-bubble' : ''}`}>{entry.streaming && entry.content === 'AI sedang menyusun...' ? <div className="ai-streaming-status"><span>AI sedang menyusun</span><i /><i /><i /></div> : <p>{entry.content}{entry.streaming && <span className="stream-caret" />}</p>}{entry.isError && <button className="ai-retry-btn" aria-label="Ulangi permintaan" title="Ulangi permintaan" onClick={event => { event.stopPropagation(); void retryMessage(entry); }} disabled={loading || streamingId !== null}><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8.1 8.1 0 0 0-15.5-2M4 5v4h4M4 13a8.1 8.1 0 0 0 15.5 2M20 19v-4h-4" /></svg></button>}</div></div>)}</div><div className="ai-chat-compose"><textarea value={prompt} onChange={event => setPrompt(event.target.value)} onKeyDown={event => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void sendMessage(); } }} placeholder="Tulis revisi atau perubahan pada plan menu..." rows={3} disabled={!assessmentComplete || contextLimitReached} /><button className="primary ai-send-btn" disabled={loading || !prompt.trim() || !assessmentComplete || streamingId !== null} onClick={() => void sendMessage()}><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-label="Kirim"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg></button></div></>}{contextLimitReached && <div className="ai-context-limit">Kuota Melebihi Batas, Tolong Buat Percakapan Baru</div>}</div>
     </div>
   </section>;
 }

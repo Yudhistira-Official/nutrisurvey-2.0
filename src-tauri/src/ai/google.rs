@@ -18,6 +18,7 @@ pub(crate) async fn generate(client: &Client, request: &AiRequest) -> Result<Str
         client,
         client.post(url).header("x-goog-api-key", &request.api_key),
         &payload,
+        &request.api_key,
     )
     .await?;
     parse_response(&body, "/candidates/0/content/parts/0/text")

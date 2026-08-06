@@ -32,6 +32,16 @@ test('project adapters use native Rust commands with selected paths', async () =
   ]);
 });
 
+test('project adapters open a saved project by exact history path', async () => {
+  const calls = [];
+  const adapters = createCommandAdapters(async (command, payload) => {
+    calls.push({ command, payload });
+    return { version: 1, foods: [], meals: [], targets: { kcal: 0, carbs: 0, protein: 0, fat: 0 } };
+  });
+  await adapters.openProjectPath('/tmp/saved.nutri');
+  assert.deepEqual(calls, [{ command: 'project_open_path', payload: { path: '/tmp/saved.nutri' } }]);
+});
+
 test('command invoker supports commands without arguments', async () => {
   const calls = [];
   const invoke = async (command, payload) => {

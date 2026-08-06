@@ -5,6 +5,7 @@ use crate::{
     storage::Storage,
 };
 use sqlx::FromRow;
+use std::collections::HashMap;
 
 #[derive(Debug, Clone, FromRow)]
 struct FoodSearchRow {
@@ -71,7 +72,15 @@ async fn fetch_foods(
     if order_by_name {
         statement = statement.bind(&normalized_query).bind(&normalized_query);
     }
-    let rows = statement.bind(limit).fetch_all(storage.pool()).await?;
+    let fetch_limit = if limit == i64::MAX {
+        limit
+    } else {
+        limit.saturating_mul(4).max(limit)
+    };
+    let rows = statement
+        .bind(fetch_limit)
+        .fetch_all(storage.pool())
+        .await?;
     let mut result = Vec::new();
     for row in rows {
         if let Some(food) = result
@@ -99,7 +108,59 @@ async fn fetch_foods(
             });
         }
     }
+    result.retain(|food| {
+        !is_nutritionally_empty(
+            &food.name,
+            food.category.as_deref().unwrap_or(""),
+            &food.nutrients,
+        )
+    });
+    if limit != i64::MAX {
+        result.truncate(limit.max(0) as usize);
+    }
     Ok(result)
+}
+
+pub fn is_allowed_zero_food(name: &str) -> bool {
+    let value = name.trim().to_lowercase();
+    [
+        "air",
+        "air putih",
+        "air mineral",
+        "air minum",
+        "air (botol)",
+        "air keran",
+        "aqua",
+        "ades",
+        "club",
+        "le mineral",
+        "nestle air minum",
+        "vit",
+    ]
+    .iter()
+    .any(|allowed| value == *allowed || value.starts_with(&format!("{allowed} ")))
+}
+
+pub fn is_nutritionally_empty(
+    name: &str,
+    category: &str,
+    nutrients: &HashMap<String, f64>,
+) -> bool {
+    if is_allowed_zero_food(name) {
+        return false;
+    }
+    let _ = category;
+    !nutrients.is_empty() && !nutrients.values().any(|amount| amount.abs() > f64::EPSILON)
+}
+
+pub async fn ai_candidate_catalog(
+    storage: &Storage,
+    limit: usize,
+) -> Result<Vec<FoodResult>, AppError> {
+    let mut foods = all_foods(storage).await?;
+    foods.sort_by(|left, right| left.name.to_lowercase().cmp(&right.name.to_lowercase()));
+    foods.truncate(limit);
+    Ok(foods)
 }
 
 pub async fn recommend(

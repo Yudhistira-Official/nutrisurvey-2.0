@@ -161,7 +161,7 @@ export function parseProject(value: string): ProjectFile {
   const project = data as Partial<ProjectFile>;
   if (!Array.isArray(project.foods) || !project.foods.every(validFood) || !Array.isArray(project.meals) || !project.meals.every(validMeal) || !validTargets(project.targets)) throw new Error('File proyek tidak valid');
   const mealIds = new Set(project.meals.map(meal => meal.id));
-  if (!project.foods.every(food => mealIds.has(food.mealTime))) throw new Error('File proyek tidak valid');
+  if (mealIds.size !== project.meals.length || !project.foods.every(food => mealIds.has(food.mealTime))) throw new Error('File proyek tidak valid');
   return { version: 1, foods: project.foods, meals: project.meals, targets: project.targets };
 }
 
@@ -184,14 +184,57 @@ export function calculateMacroTargets(response: Pick<TdeeResponse, 'totalDailyEn
 }
 
 export function moveFoodToMeal(foods: SessionFood[], foodId: string, mealTime: string): SessionFood[] {
-  return foods.map(food => food.id === foodId ? { ...food, mealTime } : food);
+  const index = foods.findIndex(food => food.id === foodId);
+  if (index < 0) return foods;
+  const moved = { ...foods[index], mealTime };
+  const next = foods.filter(food => food.id !== foodId);
+  const destinationEnd = next.reduce((last, food, position) => food.mealTime === mealTime ? position + 1 : last, next.length);
+  next.splice(destinationEnd, 0, moved);
+  return next;
+}
+
+export function moveFoodToMealAtPosition(foods: SessionFood[], foodId: string, mealTime: string, targetId: string): SessionFood[] {
+  const source = foods.find(food => food.id === foodId);
+  const target = foods.find(food => food.id === targetId);
+  if (!source || !target || source.id === target.id || target.mealTime !== mealTime) return foods;
+  const next = foods.filter(food => food.id !== foodId);
+  const targetIndex = next.findIndex(food => food.id === targetId);
+  next.splice(targetIndex, 0, { ...source, mealTime });
+  return next;
+}
+
+export function reorderItems<T extends { id: string }>(items: T[], draggedId: string, targetId: string): T[] {
+  if (draggedId === targetId) return items;
+  const from = items.findIndex(item => item.id === draggedId);
+  const to = items.findIndex(item => item.id === targetId);
+  if (from < 0 || to < 0) return items;
+  const next = [...items];
+  const [dragged] = next.splice(from, 1);
+  next.splice(to, 0, dragged);
+  return next;
+}
+
+export function reorderFoods(foods: SessionFood[], draggedId: string, targetId: string): SessionFood[] {
+  if (draggedId === targetId) return foods;
+  const from = foods.findIndex(food => food.id === draggedId);
+  const to = foods.findIndex(food => food.id === targetId);
+  if (from < 0 || to < 0 || foods[from].mealTime !== foods[to].mealTime) return foods;
+  const next = [...foods];
+  const [dragged] = next.splice(from, 1);
+  next.splice(to, 0, dragged);
+  return next;
 }
 
 export function implementAiRows(rows: AiMealRow[], meals: MealTime[]) {
   const added: SessionFood[] = [];
   const unmatched: string[] = [];
+  const matches = new Map<string, number>();
   for (const row of rows) {
-    const meal = meals.find(item => item.label.trim().toLowerCase() === row.meal_type.trim().toLowerCase());
+    const key = row.meal_type.trim().toLowerCase();
+    const candidates = meals.filter(item => item.label.trim().toLowerCase() === key);
+    const index = matches.get(key) ?? 0;
+    const meal = candidates[index % candidates.length];
+    matches.set(key, index + 1);
     if (!meal) { unmatched.push(row.meal_type); continue; }
     const grams = row.suggested_grams || 100;
     added.push({ id: `${Date.now()}-${Math.random()}`, sourceFoodId: row.matched_food_id, name: row.matched_food_name || row.requested_keyword, amount: grams, servingSize: grams, servingUnit: 'g', servingsPerContainer: 1, mealTime: meal.id, nutrients: { ...row.nutrients, energi: row.calories, protein: row.protein, 'lemak total': row.fat, 'karbohidrat total': row.carbohydrate } });

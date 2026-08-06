@@ -177,6 +177,11 @@ pub mod commands {
     }
 
     #[tauri::command]
+    pub fn cancel_ai_request(request_id: String) {
+        ai::cancel_request(&request_id);
+    }
+
+    #[tauri::command]
     pub async fn stream_ai_menu(
         state: State<'_, AppState>,
         mut request: models::AiRequest,
@@ -316,6 +321,24 @@ pub mod commands {
     }
 
     #[tauri::command]
+    pub async fn project_open_path(
+        state: State<'_, AppState>,
+        path: String,
+    ) -> Result<project::ProjectFile, error::AppError> {
+        let path = std::path::PathBuf::from(path);
+        let project = project::load(&path).await?;
+        record_history(
+            &state.storage,
+            models::FileHistoryItem {
+                path: path.to_string_lossy().into_owned(),
+                kind: "project".into(),
+            },
+        )
+        .await?;
+        Ok(project)
+    }
+
+    #[tauri::command]
     pub async fn project_open(
         app: AppHandle,
     ) -> Result<Option<project::ProjectFile>, error::AppError> {
@@ -336,7 +359,16 @@ pub mod commands {
             else {
                 return Ok(None);
             };
-            Ok(Some(project::load(&path).await?))
+            let project = project::load(&path).await?;
+            record_history(
+                &app.state::<AppState>().storage,
+                models::FileHistoryItem {
+                    path: path.to_string_lossy().into_owned(),
+                    kind: "project".into(),
+                },
+            )
+            .await?;
+            Ok(Some(project))
         }
         #[cfg(mobile)]
         {
@@ -451,6 +483,7 @@ pub fn run() {
             commands::import_csv_from_path,
             commands::generate_ai_menu,
             commands::stream_ai_menu,
+            commands::cancel_ai_request,
             commands::ai_default_info,
             commands::ai_key_load,
             commands::ai_key_save,
@@ -460,6 +493,7 @@ pub fn run() {
             commands::open_existing_file,
             commands::project_save,
             commands::project_open,
+            commands::project_open_path,
             commands::export_word,
             commands::check_update,
             commands::install_update

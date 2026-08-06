@@ -42,6 +42,8 @@ fn bundled_template_renders_expected_report_sections() {
     .unwrap();
     let output = String::from_utf8(bytes).unwrap();
     assert!(output.contains("HASIL PERHITUNGAN DIET"));
+    assert!(!output.contains("HASIL PERHITUNGAN DIET/"));
+    assert!(output.contains("\\tqc\\tx3000\\tqc\\tx5700\\tqc\\tx8400"));
     assert!(output.contains("Nasi"));
     assert!(output.contains("Telur"));
     assert!(output.contains("energy"));
