@@ -539,15 +539,65 @@ pub async fn seed_configured_resources(storage: &storage::Storage) -> Result<u64
     }
     paths.sort();
     paths.dedup();
-    let mut resources = Vec::new();
-    for path in paths {
-        let name = path
-            .file_name()
-            .and_then(|name| name.to_str())
-            .unwrap_or("resource.csv")
-            .to_string();
-        resources.push((name, tokio::fs::read(path).await?));
+
+    // If local CSV files found, import from disk
+    if !paths.is_empty() {
+        let mut resources = Vec::new();
+        for path in paths {
+            let name = path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .unwrap_or("resource.csv")
+                .to_string();
+            resources.push((name, tokio::fs::read(path).await?));
+        }
+        let references = resources
+            .iter()
+            .map(|(name, bytes)| (name.as_str(), bytes.as_slice()))
+            .collect::<Vec<_>>();
+        return import::synchronize_sources(storage, &references).await;
     }
+
+    // Fallback: download from GitHub raw if no local CSVs found
+    let github_csvs = [
+        (
+            "DataPangankuKemenkes2017.csv",
+            "https://raw.githubusercontent.com/Yudhistira-Official/nutrisurvey-2.0/main/DatabaseMakanan/DataPangankuKemenkes2017.csv",
+        ),
+        (
+            "DatabaseFatSecret.csv",
+            "https://raw.githubusercontent.com/Yudhistira-Official/nutrisurvey-2.0/main/DatabaseMakanan/DatabaseFatSecret.csv",
+        ),
+        (
+            "DatabaseNilaiGiziCom.csv",
+            "https://raw.githubusercontent.com/Yudhistira-Official/nutrisurvey-2.0/main/DatabaseMakanan/DatabaseNilaiGiziCom.csv",
+        ),
+    ];
+
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(60))
+        .build()
+        .map_err(|e| error::AppError::Io(e.to_string()))?;
+
+    let mut resources: Vec<(String, Vec<u8>)> = Vec::new();
+    for (name, url) in &github_csvs {
+        match client.get(*url).send().await {
+            Ok(response) if response.status().is_success() => {
+                match response.bytes().await {
+                    Ok(bytes) if !bytes.is_empty() => {
+                        resources.push((name.to_string(), bytes.to_vec()));
+                    }
+                    _ => {}
+                }
+            }
+            _ => {}
+        }
+    }
+
+    if resources.is_empty() {
+        return Ok(0);
+    }
+
     let references = resources
         .iter()
         .map(|(name, bytes)| (name.as_str(), bytes.as_slice()))
