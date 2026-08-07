@@ -39,7 +39,7 @@
   },
   "plugins": {
     "updater": {
-      "pubkey": "UldTcnFqWjg1amQ0Rkg0bEwvMVRINy9sVU14am1pdWFrMWxrZ0FWaytITWlIQmg4RUVPenNrU1U=",
+      "pubkey": "UldUbktwMUh6SXVPbkVKZ3hIRmhtTDFkazQ2bEhZQzZPSGcxRktGc3k4NFpMa0NxUk1FZTRZOHQ=",
       "endpoints": [
         "https://github.com/Yudhistira-Official/nutrisurvey-2.0/releases/latest/download/latest.json"
       ]
