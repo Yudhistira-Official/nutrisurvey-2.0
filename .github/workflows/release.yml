@@ -63,12 +63,20 @@ jobs:
           AI_PROVIDER: ${{ secrets.AI_PROVIDER }}
         with:
           tagName: ${{ github.ref_name }}
-          releaseName: NutriSurvey ${{ github.ref_name }}
+          releaseName: "NutriSurvey ${{ github.ref_name }} — Major Update"
           releaseBody: |
+            ## Major Update — NutriSurvey ${{ github.ref_name }}
+
             Download installer sesuai OS:
             - **Linux**: `.AppImage` atau `.deb`
-            - **Windows**: `.msi` atau `.exe` (NSIS)
+            - **Windows**: `.exe` (NSIS) atau `.msi`
             - **macOS**: `.dmg`
+
+            ### Apa yang baru di v2.0.0
+            - Tampilan tab Rekomendasi diperbarui — dropdown style konsisten
+            - Pop-up donasi QRIS saat pertama buka aplikasi
+            - Animasi slide-up/down pada popup donasi
+            - Perbaikan UI dan performa lainnya
 
             App akan mendeteksi update otomatis dari release berikutnya.
           releaseDraft: false

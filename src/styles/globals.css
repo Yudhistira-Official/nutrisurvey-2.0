@@ -57,3 +57,15 @@
 .rec-bar-fill{height:100%;background:linear-gradient(90deg,#4ade80,#006d37);border-radius:999px;transition:width .3s}
 .rec-bar-value{font-size:11px;font-weight:600;color:#304034;width:62px;text-align:right;flex-shrink:0}
 @media(max-width:900px){.rec-page{grid-template-columns:1fr;height:auto}.rec-sidebar{height:auto}}
+.donation-overlay{position:fixed;inset:0;z-index:100;display:flex;align-items:center;justify-content:center;backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);background:rgba(0,0,0,.45);pointer-events:all;animation:donation-bg-in .35s ease}
+.donation-overlay.closing{animation:donation-bg-out .35s ease forwards}
+.donation-popup{background:#fff;border-radius:16px;padding:28px 28px 24px;max-width:360px;width:calc(100% - 40px);display:flex;flex-direction:column;align-items:center;gap:16px;box-shadow:0 8px 48px rgba(0,109,55,.18);animation:donation-slide-in .35s cubic-bezier(.22,1,.36,1)}
+.donation-popup.closing{animation:donation-slide-out .35s cubic-bezier(.55,0,1,.45) forwards}
+@keyframes donation-bg-in{from{opacity:0}to{opacity:1}}
+@keyframes donation-bg-out{from{opacity:1}to{opacity:0}}
+@keyframes donation-slide-in{from{opacity:0;transform:translateY(60px)}to{opacity:1;transform:translateY(0)}}
+@keyframes donation-slide-out{from{opacity:1;transform:translateY(0)}to{opacity:0;transform:translateY(60px)}}
+.donation-header{text-align:center}.donation-header h2{margin:0 0 6px;font-size:20px;color:#161d17}.donation-header p{margin:0;font-size:13px;color:var(--muted);line-height:1.5}
+.donation-qris{width:240px;height:240px;object-fit:contain;border-radius:12px;border:1px solid var(--border)}
+.donation-footer{display:flex;flex-direction:column;align-items:center;gap:10px;width:100%}.donation-note{margin:0;font-size:12px;color:var(--muted);text-align:center}
+.donation-close{background:var(--primary);color:#fff;border:0;border-radius:10px;padding:10px 24px;font-size:14px;font-weight:600;cursor:pointer;width:100%;transition:opacity .15s}.donation-close:hover{opacity:.85}
