@@ -1,4 +1,4 @@
-use super::{endpoint_for_client as endpoint, payload, send_json};
+use super::{endpoint_for_client as endpoint, is_cancelled, payload, send_json};
 use crate::{error::AppError, models::AiRequest};
 use futures_util::StreamExt;
 use reqwest::Client;
@@ -55,6 +55,9 @@ where
     let mut full = String::new();
     let mut buf = String::new();
     while let Some(chunk) = stream.next().await {
+        if is_cancelled(&request.request_id) {
+            return Err(AppError::Ai("AI request cancelled".into()));
+        }
         let bytes = chunk.map_err(|_| AppError::Ai("stream read error".into()))?;
         buf.push_str(&String::from_utf8_lossy(&bytes));
         process_sse_lines(&mut buf, &mut full, &mut on_token);

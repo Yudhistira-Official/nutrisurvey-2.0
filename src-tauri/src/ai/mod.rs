@@ -18,8 +18,14 @@ pub mod prompt;
 
 use std::collections::HashSet;
 use std::sync::{Mutex, OnceLock};
+use tokio::sync::Semaphore;
 
 static CANCELLED_REQUESTS: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
+static AI_REQUEST_GATE: OnceLock<Semaphore> = OnceLock::new();
+
+fn ai_request_gate() -> &'static Semaphore {
+    AI_REQUEST_GATE.get_or_init(|| Semaphore::new(1))
+}
 
 fn cancelled_requests() -> &'static Mutex<HashSet<String>> {
     CANCELLED_REQUESTS.get_or_init(|| Mutex::new(HashSet::new()))
@@ -44,6 +50,10 @@ pub async fn generate_menu(
     storage: &Storage,
     request: AiRequest,
 ) -> Result<Vec<MappedMealItem>, AppError> {
+    let _request_permit = ai_request_gate()
+        .acquire()
+        .await
+        .map_err(|_| AppError::Ai("AI request gate is unavailable".into()))?;
     validate_request(&request)?;
     let request = with_candidate_catalog(storage, request).await?;
     let (base_url, socket) =
@@ -65,6 +75,10 @@ pub async fn stream_menu(
     request: AiRequest,
     channel: tauri::ipc::Channel<String>,
 ) -> Result<Vec<MappedMealItem>, AppError> {
+    let _request_permit = ai_request_gate()
+        .acquire()
+        .await
+        .map_err(|_| AppError::Ai("AI request gate is unavailable".into()))?;
     validate_request(&request)?;
     let request = with_candidate_catalog(storage, request).await?;
     let (base_url, socket) =
@@ -82,33 +96,34 @@ pub async fn stream_menu(
     let max_attempts = if current.verify_menu { 3 } else { 1 };
     let mut best: Option<(Vec<MappedMealItem>, f64)> = None;
     for attempt in 0..max_attempts {
-        if is_cancelled(&current.request_id) {
-            return Err(AppError::Ai("AI request cancelled".into()));
+        before_next_ai_phase(&current.request_id)?;
+        let streaming_provider = matches!(
+            current.provider.trim().to_ascii_lowercase().as_str(),
+            "openai" | "openrouter" | "custom"
+        );
+        if attempt > 0 {
+            let _ = channel.send(format!(
+                "\n\n[Verifikasi {}/3: menghitung nutrisi database dan memperbaiki menu...]\n\n",
+                attempt + 1
+            ));
         }
-        let content_result = match current.provider.trim().to_ascii_lowercase().as_str() {
-            "openai" | "openrouter" | "custom" => {
-                openai::generate_stream(&client, &current, |token| {
-                    if attempt == 0 {
-                        let _ = channel.send(token.to_owned());
-                    }
-                })
-                .await
-            }
-            _ => generate_content(&client, &current).await,
+        let content_result = if streaming_provider {
+            openai::generate_stream(&client, &current, |token| {
+                let _ = channel.send(token.to_owned());
+            })
+            .await
+        } else {
+            generate_content(&client, &current).await
         };
         let content = match content_result {
             Ok(content) => {
-                if attempt == 0
-                    && !matches!(
-                        current.provider.trim().to_ascii_lowercase().as_str(),
-                        "openai" | "openrouter" | "custom"
-                    )
-                {
-                    send_stream_chunks(&channel, &content).await;
+                if !streaming_provider {
+                    send_stream_chunks(&channel, &content, &current.request_id).await;
                 }
+                before_next_ai_phase(&current.request_id)?;
                 content
             }
-            Err(error) if attempt + 1 < max_attempts => {
+            Err(error) if attempt + 1 < max_attempts && !is_rate_limited(&error) => {
                 let _ = channel.send(format!(
                     "\n\n[Verifikasi {}/3: request AI gagal ({}). AI mengulangi...]\n\n",
                     attempt + 1,
@@ -162,12 +177,16 @@ pub async fn stream_menu(
         if report.is_valid || attempt + 1 == max_attempts {
             return Ok(menu);
         }
+        before_next_ai_phase(&current.request_id)?;
         let _ = channel.send(format!(
-            "\n\n[Verifikasi {}/3 belum sesuai: {}. AI memperbaiki menu...]\n\n",
+            "\n\n[Verifikasi {}/3 belum sesuai: {}. AI memperbaiki item database yang bermasalah...]\n\n",
             attempt + 1,
             report.feedback
         ));
-        current.prompt = format!("{}\n\nVERIFIKASI SISTEM (attempt {}/3): {}\nAngka aktual dihitung dari database SQLite setelah gram diskalakan, bukan dari perkiraan AI. Perbaiki gram atau pilih makanan lain berdasarkan data database. Jangan keluarkan makanan yang tidak ada di database.", current.prompt, attempt + 1, report.feedback);
+        current.active_menu = serde_json::to_string(&menu)
+            .map_err(|_| AppError::Ai("AI verification context could not be serialized".into()))?;
+        current.revision = true;
+        current.prompt = format!("{}\n\nVERIFIKASI SISTEM (attempt {}/3): {}\nMenu aktif di atas adalah hasil pemetaan DATABASE SQLITE dan wajib dipertahankan. Jangan membuat ulang seluruh menu. Kembalikan hanya item yang perlu diperbaiki dalam format meal_plan, gunakan hanya makanan yang ada di katalog database, dan ubah suggested_grams atau food_keyword hanya pada item bermasalah. Semua item lain akan dipertahankan sistem.", current.prompt, attempt + 1, report.feedback);
     }
     Ok(best.map(|(menu, _)| menu).unwrap_or_default())
 }
@@ -200,9 +219,16 @@ async fn with_candidate_catalog(
     Ok(request)
 }
 
-async fn send_stream_chunks(channel: &tauri::ipc::Channel<String>, content: &str) {
+async fn send_stream_chunks(
+    channel: &tauri::ipc::Channel<String>,
+    content: &str,
+    request_id: &str,
+) {
     let chars = content.chars().collect::<Vec<_>>();
     for chunk in chars.chunks(48) {
+        if is_cancelled(request_id) {
+            return;
+        }
         let _ = channel.send(chunk.iter().collect());
         tokio::time::sleep(Duration::from_millis(24)).await;
     }
@@ -218,7 +244,11 @@ pub async fn generate_menu_with_client(
     let mut current = request;
     let max_attempts = if current.verify_menu { 3 } else { 1 };
     for attempt in 0..max_attempts {
-        let content = generate_content(client, &current).await?;
+        let content = match generate_content(client, &current).await {
+            Ok(content) => content,
+            Err(error) if is_rate_limited(&error) => return Err(error),
+            Err(error) => return Err(error),
+        };
         let plan = prompt::parse_meal_plan(&content)?;
         let mapped = meals::map_ai_items(storage, &plan).await?;
         let mapped_count = mapped.len();
@@ -251,9 +281,27 @@ pub async fn generate_menu_with_client(
         if report.is_valid || attempt == 2 {
             return Ok(menu);
         }
-        current.prompt = format!("{}\n\nVERIFIKASI SISTEM (attempt {}/3): {}\nAngka aktual dihitung dari database SQLite setelah gram diskalakan, bukan dari perkiraan AI. Perbaiki gram atau pilih makanan lain berdasarkan data database. Jangan keluarkan makanan yang tidak ada di database.", current.prompt, attempt + 1, report.feedback);
+        current.active_menu = serde_json::to_string(&menu)
+            .map_err(|_| AppError::Ai("AI verification context could not be serialized".into()))?;
+        current.revision = true;
+        current.prompt = format!("{}\n\nVERIFIKASI SISTEM (attempt {}/3): {}\nMenu aktif di atas adalah hasil pemetaan DATABASE SQLITE dan wajib dipertahankan. Jangan membuat ulang seluruh menu. Kembalikan hanya item yang perlu diperbaiki dalam format meal_plan, gunakan hanya makanan yang ada di katalog database, dan ubah suggested_grams atau food_keyword hanya pada item bermasalah. Semua item lain akan dipertahankan sistem.", current.prompt, attempt + 1, report.feedback);
     }
     Ok(best.map(|(menu, _)| menu).unwrap_or_default())
+}
+
+fn before_next_ai_phase(request_id: &str) -> Result<(), AppError> {
+    if is_cancelled(request_id) {
+        Err(AppError::Ai("AI request cancelled".into()))
+    } else {
+        Ok(())
+    }
+}
+
+fn is_rate_limited(error: &AppError) -> bool {
+    error.to_string().contains("HTTP 429")
+        || error.to_string().contains("rate limit")
+        || error.to_string().contains("Rate limit")
+        || error.to_string().contains("FreeUsageLimitError")
 }
 
 async fn generate_content(client: &Client, request: &AiRequest) -> Result<String, AppError> {
@@ -415,7 +463,7 @@ fn endpoint_shape(base_url: &str) -> Result<Url, AppError> {
         || url.password().is_some()
         || url.query().is_some()
         || url.fragment().is_some()
-        || is_private_host(&url)
+        || (!is_loopback_host(&url) && is_private_host(&url))
     {
         return Err(AppError::Validation("AI base URL is invalid".into()));
     }
@@ -450,15 +498,17 @@ where
         .ok_or_else(|| AppError::Validation("AI base URL is invalid".into()))?;
     let addresses =
         resolver().map_err(|_| AppError::Validation("AI base URL could not be resolved".into()))?;
-    if addresses.iter().any(is_private_ip) {
-        return Err(AppError::Validation(
-            "AI base URL resolves to a private address".into(),
-        ));
+    validate_resolved_addresses(&url, &addresses)?;
+    let address = if is_loopback_host(&url) {
+        addresses
+            .iter()
+            .find(|address| address.is_ipv4())
+            .copied()
+            .or_else(|| addresses.first().copied())
+    } else {
+        addresses.first().copied()
     }
-    let address = addresses
-        .into_iter()
-        .next()
-        .ok_or_else(|| AppError::Validation("AI base URL could not be resolved".into()))?;
+    .ok_or_else(|| AppError::Validation("AI base URL could not be resolved".into()))?;
     Ok((url, SocketAddr::new(address, port)))
 }
 
@@ -495,19 +545,13 @@ where
         || url.password().is_some()
         || url.query().is_some()
         || url.fragment().is_some()
-        || is_private_host(&url)
+        || (!is_loopback_host(&url) && is_private_host(&url))
     {
         return Err(AppError::Validation("AI base URL is invalid".into()));
     }
-    if resolver()
-        .map_err(|_| AppError::Validation("AI base URL could not be resolved".into()))?
-        .into_iter()
-        .any(|address| is_private_ip(&address))
-    {
-        return Err(AppError::Validation(
-            "AI base URL resolves to a private address".into(),
-        ));
-    }
+    let addresses =
+        resolver().map_err(|_| AppError::Validation("AI base URL could not be resolved".into()))?;
+    validate_resolved_addresses(&url, &addresses)?;
     join_endpoint(url, suffix)
 }
 
@@ -530,6 +574,31 @@ fn is_private_ip(address: &IpAddr) -> bool {
         IpAddr::V4(address) => is_private_ipv4(*address),
         IpAddr::V6(address) => is_private_ipv6(*address),
     }
+}
+
+fn validate_resolved_addresses(url: &Url, addresses: &[IpAddr]) -> Result<(), AppError> {
+    let loopback_host = is_loopback_host(url);
+    if addresses.is_empty()
+        || addresses.iter().any(|address| {
+            if loopback_host {
+                !address.is_loopback()
+            } else {
+                is_private_ip(address)
+            }
+        })
+    {
+        return Err(AppError::Validation(
+            "AI base URL resolves to an unsafe address".into(),
+        ));
+    }
+    Ok(())
+}
+
+fn is_loopback_host(url: &Url) -> bool {
+    url.host_str().is_some_and(|host| {
+        let normalized = host.trim_start_matches('[').trim_end_matches(']');
+        normalized.eq_ignore_ascii_case("localhost") || normalized == "127.0.0.1"
+    })
 }
 
 fn is_private_host(url: &Url) -> bool {

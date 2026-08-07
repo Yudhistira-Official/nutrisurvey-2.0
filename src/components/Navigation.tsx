@@ -50,6 +50,6 @@ export default function Navigation({ section, onSection, onSave, onOpen, onImpor
       <button onClick={onImportCsv}><span className="nav-icon" aria-hidden="true">＋</span><span>Impor CSV</span></button>
       <button onClick={onReport}><span className="nav-icon" aria-hidden="true">▤</span><span>Word Report</span></button>
     </div>
-    <div className="sidebar-footer"><strong>NutriSurvey Pro</strong><small>Versi 0.1.0</small></div><button className="settings-trigger" aria-label="Pengaturan" onClick={onSettings}>⚙ <span>Pengaturan</span></button>
+    <div className="sidebar-footer"><strong>NutriSurvey Pro</strong><small>Versi 2.0.0</small></div><button className="settings-trigger" aria-label="Pengaturan" onClick={onSettings}>⚙ <span>Pengaturan</span></button>
   </nav>;
 }

@@ -236,8 +236,51 @@ async fn malformed_json_missing_fields_and_http_errors_are_redacted() {
 #[test]
 fn verification_retry_does_not_mix_attempt_output() {
     let source = std::fs::read_to_string("src/ai/mod.rs").unwrap();
-    assert!(source.contains("if attempt == 0"));
-    assert!(source.contains("parse_meal_plan"));
+    assert!(source.contains("let streaming_provider = matches!("));
+    assert!(source.contains("generate_content(&client, &current).await"));
+    assert!(source.contains("menghitung nutrisi database"));
+}
+
+#[test]
+fn openai_verification_attempts_keep_streaming_response_path() {
+    let source = std::fs::read_to_string("src/ai/mod.rs").unwrap();
+    assert!(source.contains("let streaming_provider = matches!("));
+    assert!(source.contains("if streaming_provider"));
+    assert!(source.contains("openai::generate_stream(&client, &current"));
+}
+
+#[test]
+fn all_ai_commands_share_one_process_wide_request_gate() {
+    let source = std::fs::read_to_string("src/ai/mod.rs").unwrap();
+    assert!(source.contains("static AI_REQUEST_GATE: OnceLock<Semaphore>"));
+    assert!(
+        source
+            .matches("ai_request_gate()\n        .acquire()")
+            .count()
+            >= 2
+    );
+}
+
+#[test]
+fn provider_rate_limits_are_not_retried_as_verification_attempts() {
+    let source = std::fs::read_to_string("src/ai/mod.rs").unwrap();
+    assert!(source.contains("fn is_rate_limited"));
+    assert!(source.contains("attempt + 1 < max_attempts && !is_rate_limited(&error)"));
+}
+
+#[test]
+fn cancellation_is_checked_before_each_ai_phase() {
+    let source = std::fs::read_to_string("src/ai/mod.rs").unwrap();
+    assert!(source.contains("fn before_next_ai_phase"));
+    assert!(source.contains("before_next_ai_phase(&current.request_id)?"));
+}
+
+#[test]
+fn verification_uses_existing_database_menu_and_only_requests_corrections() {
+    let source = std::fs::read_to_string("src/ai/mod.rs").unwrap();
+    assert!(source.contains("current.active_menu = serde_json::to_string(&menu)"));
+    assert!(source.contains("current.revision = true"));
+    assert!(source.contains("Kembalikan hanya item yang perlu diperbaiki"));
 }
 
 #[test]
@@ -327,6 +370,50 @@ fn hostname_resolution_rejects_unresolved_host() {
 }
 
 #[test]
+fn localhost_custom_port_base_url_is_supported() {
+    let endpoint =
+        ai::endpoint_with_resolver("http://localhost:20128/v1", "chat/completions", || {
+            Ok::<_, std::io::Error>(vec!["127.0.0.1".parse().unwrap()])
+        })
+        .unwrap();
+    assert_eq!(
+        endpoint.as_str(),
+        "http://localhost:20128/v1/chat/completions"
+    );
+
+    let loopback =
+        ai::endpoint_with_resolver("http://127.0.0.1:20128/v1", "chat/completions", || {
+            Ok::<_, std::io::Error>(vec!["127.0.0.1".parse().unwrap()])
+        })
+        .unwrap();
+    assert_eq!(
+        loopback.as_str(),
+        "http://127.0.0.1:20128/v1/chat/completions"
+    );
+}
+
+#[test]
+fn localhost_resolution_rejects_non_loopback_result() {
+    let result =
+        ai::endpoint_with_resolver("http://localhost:20128/v1", "chat/completions", || {
+            Ok::<_, std::io::Error>(vec!["192.168.1.20".parse().unwrap()])
+        });
+    assert!(result.is_err());
+}
+
+#[test]
+fn localhost_pinning_prefers_ipv4_when_both_loopbacks_resolve() {
+    let (_, socket) = ai::resolve_and_pin("http://localhost:20128/v1", || {
+        Ok::<_, std::io::Error>(vec!["::1".parse().unwrap(), "127.0.0.1".parse().unwrap()])
+    })
+    .unwrap();
+    assert_eq!(
+        socket.ip(),
+        "127.0.0.1".parse::<std::net::IpAddr>().unwrap()
+    );
+}
+
+#[test]
 fn endpoint_validation_rejects_unsafe_urls_and_structurally_joins_paths() {
     for base_url in [
         "https://example.test?token=secret",
@@ -335,9 +422,7 @@ fn endpoint_validation_rejects_unsafe_urls_and_structurally_joins_paths() {
         "http://10.0.0.1",
         "http://192.168.1.1",
         "http://169.254.169.254",
-        "http://127.0.0.1",
         "http://127.42.0.1:8080/path",
-        "http://[::1]/api",
         "http://[::ffff:127.0.0.1]/api",
     ] {
         assert!(

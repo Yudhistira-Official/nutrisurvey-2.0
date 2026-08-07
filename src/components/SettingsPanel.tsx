@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { deleteAiKey, getAiDefaultInfo, loadAiKey, openExistingFile, saveAiKey, listFileHistory } from '../lib/commands';
 import type { AiConfig, FileHistoryItem } from '../lib/types';
 
@@ -9,6 +9,11 @@ export default function SettingsPanel({ open, onClose, onOpenProjectPath }: { op
   const [config, setConfig] = useState<AiConfig>({ provider: 'openrouter', model: '', apiKey: '', baseUrl: '' });
   const [defaultAvailable, setDefaultAvailable] = useState(false);
   const [message, setMessage] = useState('');
+  const messageTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => () => {
+    if (messageTimer.current) clearTimeout(messageTimer.current);
+  }, []);
 
   useEffect(() => {
     if (!open) return;
@@ -31,7 +36,9 @@ export default function SettingsPanel({ open, onClose, onOpenProjectPath }: { op
       else await deleteAiKey();
     }
     window.dispatchEvent(new CustomEvent('nutrisurvey.ai-config-updated', { detail: { ...config, apiKey: config.provider === 'builtin_default' ? '' : config.apiKey } }));
-    setMessage('Konfigurasi AI dan API key tersimpan');
+    setMessage('Konfigurasi Tersimpan');
+    if (messageTimer.current) clearTimeout(messageTimer.current);
+    messageTimer.current = setTimeout(() => setMessage(''), 5000);
   };
   const projects = history.filter(item => item.kind === 'project');
   const reports = history.filter(item => item.kind === 'report');

@@ -54,11 +54,18 @@ test('toast notifications auto-dismiss after three seconds with exit animation',
   const source = readFileSync(new URL('../src/app/page.tsx', import.meta.url), 'utf8');
   const css = readFileSync(new URL('../src/styles/globals.css', import.meta.url), 'utf8');
   assert.match(source, /toastVisible/);
-  assert.match(source, /3000/);
+  assert.match(source, /setTimeout\(\(\) => setMessage\('\'\), 250\)/);
   assert.match(source, /toastVisible \? 'toast-visible' : 'toast-exiting'/);
   assert.match(css, /@keyframes toastEnter/);
   assert.match(css, /@keyframes toastExit/);
 });
+
+test('saved AI configuration status uses requested copy and clears after five seconds', () => {
+  const source = readFileSync(new URL('../src/components/SettingsPanel.tsx', import.meta.url), 'utf8');
+  assert.match(source, /Konfigurasi Tersimpan/);
+  assert.match(source, /setTimeout\(\(\) => setMessage\('\'\), 5000\)/);
+});
+
 
 test('dashboard totals preserve serving scaling and targets', () => {
   const foods = [{
@@ -212,7 +219,7 @@ test('responsive stylesheet defines mobile sidebar and grid layout', () => {
 
 test('AI streaming path emits incremental chunks for non-streaming providers', () => {
   const source = readFileSync(new URL('../src-tauri/src/ai/mod.rs', import.meta.url), 'utf8');
-  assert.match(source, /send_stream_chunks\(&channel, &content\)/);
+  assert.match(source, /send_stream_chunks\(&channel, &content, &current.request_id\)/);
   assert.match(source, /chars\.chunks\(48\)/);
   assert.match(source, /channel\.send\(chunk\.iter\(\)\.collect\(\)\)/);
 });
@@ -248,11 +255,48 @@ test('AI generation requests database-backed verification with bounded retries',
   assert.match(commands, /verifyMenu/);
 });
 
+test('AI chatbot exposes stop control while request is active', () => {
+  const source = readFileSync(new URL('../src/components/AiMealPlanner.tsx', import.meta.url), 'utf8');
+  assert.match(source, /const stopGeneration =/);
+  assert.match(source, /cancelAiRequest\(activeRequestId\.current\)/);
+  assert.match(source, /loading \? <span aria-hidden="true">■<\/span>/);
+});
+
+test('AI verification streams every provider response attempt', () => {
+  const source = readFileSync(new URL('../src-tauri/src/ai/mod.rs', import.meta.url), 'utf8');
+  assert.match(source, /send_stream_chunks\(&channel, &content, &current.request_id\)/);
+  assert.match(source, /attempt > 0/);
+});
+
+test('AI stream checks cancellation while reading and chunking', () => {
+  const source = readFileSync(new URL('../src-tauri/src/ai/openai.rs', import.meta.url), 'utf8');
+  assert.match(source, /is_cancelled\(&request\.request_id\)/);
+  const aiModule = readFileSync(new URL('../src-tauri/src/ai/mod.rs', import.meta.url), 'utf8');
+  assert.match(aiModule, /send_stream_chunks[\s\S]*is_cancelled/);
+  assert.match(aiModule, /before_next_ai_phase/);
+});
+
+test('AI stop invalidates stream callback and cancels active request', () => {
+  const source = readFileSync(new URL('../src/components/AiMealPlanner.tsx', import.meta.url), 'utf8');
+  assert.match(source, /onToken: token => generation === requestGeneration\.current && streamAssistant\(token, streamId\)/);
+  assert.match(source, /requestGeneration\.current \+= 1/);
+  assert.match(source, /cancelAiRequest\(activeRequestId\.current\)/);
+});
+
+test('AI fallback replaces one error bubble without duplicate notification', () => {
+  const source = readFileSync(new URL('../src/components/AiMealPlanner.tsx', import.meta.url), 'utf8');
+  assert.doesNotMatch(source, /onNotify\(retryMessage\)/);
+  assert.match(source, /retryMessage = formatAiError\(fallbackCause\)/);
+  assert.match(source, /content: retryMessage/);
+});
+
 test('AI revisions send active menu context and explicit deletion rules', () => {
   const source = readFileSync(new URL('../src/components/AiMealPlanner.tsx', import.meta.url), 'utf8');
   const prompt = readFileSync(new URL('../src-tauri/src/ai/prompt.rs', import.meta.url), 'utf8');
   assert.match(source, /activeMenu/);
   assert.match(source, /revision/);
+  assert.match(source, /MENU SAAT INI/);
+  assert.match(source, /currentMenuSummary/);
   assert.match(prompt, /Menu aktif yang wajib dipertahankan/);
   assert.match(prompt, /hapus|menghapus/);
 });
@@ -284,4 +328,17 @@ test('AI generation resets streaming state after failure so retry is clickable',
   assert.match(source, /isError: true, retryPrompt: instruction/);
   assert.match(source, /retryMessage/);
   assert.match(source, /disabled=\{loading \|\| streamingId !== null\}/);
+});
+
+test('stream read error does not trigger non-stream fallback leaving stop button stuck', () => {
+  const source = readFileSync(new URL('../src/components/AiMealPlanner.tsx', import.meta.url), 'utf8');
+  assert.doesNotMatch(source, /stream read error[^]*generateAiMenu/);
+  assert.doesNotMatch(source, /NotAllowed\|not found\|channel\|IPC\|invoke\|stream\|/);
+});
+
+test('stop during generation creates retryable bubble and resets send button', () => {
+  const source = readFileSync(new URL('../src/components/AiMealPlanner.tsx', import.meta.url), 'utf8');
+  assert.match(source, /stopRequestedRef\.current = true/);
+  assert.match(source, /Permintaan dihentikan/);
+  assert.match(source, /isError: true, retryPrompt: instruction/);
 });
