@@ -51,6 +51,21 @@ jobs:
       - name: Install frontend deps
         run: npm ci
 
+      - name: Write .env for build-time AI config
+        shell: bash
+        run: |
+          if [ -n "$AI_API_KEY" ] || [ -n "$AI_MODEL" ]; then
+            echo "AI_API_KEY=$AI_API_KEY" > .env
+            echo "AI_MODEL=$AI_MODEL" >> .env
+            echo "AI_BASE_URL=$AI_BASE_URL" >> .env
+            echo "AI_PROVIDER=$AI_PROVIDER" >> .env
+          fi
+        env:
+          AI_API_KEY: ${{ secrets.AI_API_KEY }}
+          AI_MODEL: ${{ secrets.AI_MODEL }}
+          AI_BASE_URL: ${{ secrets.AI_BASE_URL }}
+          AI_PROVIDER: ${{ secrets.AI_PROVIDER }}
+
       - name: Build and release
         uses: tauri-apps/tauri-action@v0
         env:

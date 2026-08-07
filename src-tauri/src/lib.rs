@@ -508,6 +508,7 @@ pub async fn seed_configured_resources(storage: &storage::Storage) -> Result<u64
     for dir in [
         Some(resource_dir.to_path_buf()),
         resource_dir.parent().map(|p| p.join("DatabaseMakanan")),
+        Some(resource_dir.join("DatabaseMakanan")),
     ]
     .iter()
     .flatten()
