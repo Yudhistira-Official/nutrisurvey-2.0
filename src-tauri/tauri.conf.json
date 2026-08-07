@@ -35,7 +35,7 @@
     "shortDescription": "Nutrition analysis and meal planning",
     "longDescription": "Native nutrition analysis, food search, meal planning, and report export.",
     "copyright": "NutriSurvey contributors",
-    "createUpdaterArtifacts": true
+    "createUpdaterArtifacts": false
   },
   "plugins": {
     "updater": {
