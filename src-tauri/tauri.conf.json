@@ -35,11 +35,11 @@
     "shortDescription": "Nutrition analysis and meal planning",
     "longDescription": "Native nutrition analysis, food search, meal planning, and report export.",
     "copyright": "NutriSurvey contributors",
-    "createUpdaterArtifacts": false
+    "createUpdaterArtifacts": true
   },
   "plugins": {
     "updater": {
-      "pubkey": "BnJPhcBjBzq/Gm30SVr7vCb7PLDSW4syHj9jtiGUK2Y=",
+      "pubkey": "RWQ2al93oAhmCTq9MGNU8yJgKCTsek84IhIkw0PFqPR59qFQl/5Hkq3z",
       "endpoints": [
         "https://github.com/Yudhistira-Official/nutrisurvey-2.0/releases/latest/download/latest.json"
       ]
