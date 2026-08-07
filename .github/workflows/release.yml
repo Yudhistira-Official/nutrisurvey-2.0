@@ -35,7 +35,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
           cache: 'npm'
 
       - name: Install Rust stable
@@ -62,6 +62,7 @@ jobs:
           AI_BASE_URL: ${{ secrets.AI_BASE_URL }}
           AI_PROVIDER: ${{ secrets.AI_PROVIDER }}
         with:
+          tauriScript: npm run tauri:build
           tagName: ${{ github.ref_name }}
           releaseName: "NutriSurvey ${{ github.ref_name }} — Major Update"
           releaseBody: |
