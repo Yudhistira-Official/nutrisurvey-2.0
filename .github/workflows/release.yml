@@ -18,7 +18,7 @@ jobs:
             args: '--bundles appimage,deb'
           - platform: windows-latest
             args: '--bundles nsis,msi'
-          - platform: macos-latest
+          - platform: macos-14
             args: '--target universal-apple-darwin --bundles dmg'
 
     runs-on: ${{ matrix.platform }}

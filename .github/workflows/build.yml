@@ -59,7 +59,7 @@ jobs:
             args: '--bundles appimage,deb'
           - os: windows-latest
             args: ''
-          - os: macos-latest
+          - os: macos-14
             args: ''
     steps:
       - uses: actions/checkout@v4
