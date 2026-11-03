@@ -1,0 +1,91 @@
+name: Android APK
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  apk:
+    name: Build signed APK (landscape)
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: 'platforms;android-34 build-tools;34.0.0 platform-tools'
+
+      - name: Setup NDK
+        uses: android-actions/setup-ndk@v3
+        id: ndk
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install Rust Android targets
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,armv7-linux-androideabi,i686-linux-android,x86_64-linux-android
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: './src-tauri -> target'
+
+      - name: Install frontend deps
+        run: npm ci
+
+      - name: Build frontend
+        run: npm run build
+
+      - name: Build release APK (4 ABI)
+        env:
+          ANDROID_NDK_HOME: ${{ steps.ndk.outputs.ndk-path }}
+          NDK_HOME: ${{ steps.ndk.outputs.ndk-path }}
+        run: npx tauri android build --ci --apk
+
+      - name: Sign APK
+        env:
+          KEYSTORE_PASS: 'nutrisurvey-release'
+        run: |
+          set -e
+          KS="$RUNNER_TEMP/nutrisurvey.keystore"
+          keytool -genkeypair -v -keystore "$KS" -alias nutrisurvey \
+            -keyalg RSA -keysize 2048 -validity 10000 \
+            -storepass "$KEYSTORE_PASS" -keypass "$KEYSTORE_PASS" \
+            -dname "CN=NutriSurvey,O=NutriSurvey,C=ID"
+          BT="$ANDROID_HOME/build-tools/34.0.0"
+          UNSIGNED="src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release-unsigned.apk"
+          VERSION=$(jq -r .version src-tauri/tauri.conf.json)
+          "$BT/zipalign" -f -p 4 "$UNSIGNED" aligned.apk
+          "$BT/apksigner" sign --ks "$KS" --ks-pass "pass:$KEYSTORE_PASS" \
+            --key-pass "pass:$KEYSTORE_PASS" --out "NutriSurvey_${VERSION}_universal.apk" aligned.apk
+          "$BT/apksigner" verify --print-certs "NutriSurvey_${VERSION}_universal.apk"
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: nutrisurvey-apk
+          path: NutriSurvey_*_universal.apk
+          if-no-files-found: error
+
+      - name: Attach to tag release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "${{ github.ref_name }}" NutriSurvey_*_universal.apk --clobber
