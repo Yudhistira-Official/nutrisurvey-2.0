@@ -28,8 +28,11 @@ jobs:
           packages: 'platforms;android-34 build-tools;34.0.0 platform-tools'
 
       - name: Setup NDK
-        uses: android-actions/setup-ndk@v3
+        uses: nttld/setup-ndk@v1
         id: ndk
+        with:
+          ndk-version: r27c
+          add-to-path: false
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
