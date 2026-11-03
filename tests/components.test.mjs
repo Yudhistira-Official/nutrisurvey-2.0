@@ -201,6 +201,9 @@ test('report adapter invokes export command', async () => {
   const adapters = createCommandAdapters(async (command, payload) => { calls.push({ command, payload }); return { filename: 'report.rtf' }; });
   await adapters.exportToWord({ foods: [], mealTimes: [], targets: { kcal: 0, carbs: 0, protein: 0, fat: 0 } });
   assert.equal(calls[0].command, 'export_word');
+  await adapters.exportReport({ foods: [], mealTimes: [], targets: { kcal: 0, carbs: 0, protein: 0, fat: 0 } }, 'pdf');
+  assert.equal(calls[1].command, 'export_report');
+  assert.equal(calls[1].payload.kind, 'pdf');
 });
 
 test('native rejection paths become safe user messages', () => {

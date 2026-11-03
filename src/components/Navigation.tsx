@@ -48,7 +48,7 @@ export default function Navigation({ section, onSection, onSave, onOpen, onImpor
       <button onClick={onSave}><span className="nav-icon" aria-hidden="true">↓</span><span>Simpan Proyek</span></button>
       <button onClick={onOpen}><span className="nav-icon" aria-hidden="true">↑</span><span>Buka Proyek</span></button>
       <button onClick={onImportCsv}><span className="nav-icon" aria-hidden="true">＋</span><span>Impor CSV</span></button>
-      <button onClick={onReport}><span className="nav-icon" aria-hidden="true">▤</span><span>Word Report</span></button>
+      <button onClick={onReport}><span className="nav-icon" aria-hidden="true">▤</span><span>Ekspor Laporan</span></button>
     </div>
     <div className="sidebar-footer"><strong>NutriSurvey Pro</strong><small>Versi 2.0.0</small></div><button className="settings-trigger" aria-label="Pengaturan" onClick={onSettings}>⚙ <span>Pengaturan</span></button>
   </nav>;

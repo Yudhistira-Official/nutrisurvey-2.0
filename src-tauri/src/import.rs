@@ -144,10 +144,9 @@ async fn import_csv_transaction(
     if headers.is_empty() {
         return Ok(0);
     }
-    let scraper = headers
-        .iter()
-        .any(|header| header.starts_with("komponen_nutrient_"))
-        && headers.iter().any(|header| header == "makanan");
+    let scraper = headers.iter().any(|header| {
+        header.starts_with("komponen_nutrient_") || header.starts_with("komponen nutrient ")
+    }) && headers.iter().any(|header| header == "makanan");
     let result = if scraper {
         import_scraper(transaction, &headers, &mut reader).await
     } else {
@@ -234,12 +233,16 @@ async fn import_scraper(
             None => upsert_food(tx, &name, category.as_deref(), None, None).await?,
         };
         for index in 1..=48 {
-            let name_index = headers
-                .iter()
-                .position(|header| header == &format!("komponen_nutrient_{index}"));
-            let value_index = headers
-                .iter()
-                .position(|header| header == &format!("isi_nutrient_{index}"));
+            let name_key_underscore = format!("komponen_nutrient_{index}");
+            let name_key_space = format!("komponen nutrient {index}");
+            let value_key_underscore = format!("isi_nutrient_{index}");
+            let value_key_space = format!("isi nutrient {index}");
+            let name_index = headers.iter().position(|header| {
+                header == &name_key_underscore || header == &name_key_space
+            });
+            let value_index = headers.iter().position(|header| {
+                header == &value_key_underscore || header == &value_key_space
+            });
             let (Some(name_index), Some(value_index)) = (name_index, value_index) else {
                 continue;
             };
@@ -337,7 +340,11 @@ fn detect_delimiter(bytes: &[u8]) -> u8 {
     }
 }
 fn normalize_header(value: &str) -> String {
-    value.trim().trim_matches('\u{feff}').to_lowercase()
+    value
+        .trim()
+        .trim_matches('\u{feff}')
+        .to_lowercase()
+        .replace('_', " ")
 }
 
 pub(crate) fn canonical_nutrient_name(value: &str) -> String {

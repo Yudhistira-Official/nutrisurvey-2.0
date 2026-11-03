@@ -71,6 +71,7 @@ export type ExportRequest = {
   mealTimes: MealTime[];
   targets: Targets;
 };
+export type ExportFormat = 'pdf' | 'docx' | 'rtf';
 export type ExportResult = {
   filename: string;
   contentType: string;

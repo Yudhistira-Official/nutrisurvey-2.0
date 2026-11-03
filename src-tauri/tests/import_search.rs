@@ -390,3 +390,47 @@ async fn import_copy_helper_persists_source_bytes_before_import() {
     );
     cleanup(path).await;
 }
+
+/// Database bawaan (DatabaseMakanan/*.csv) harus bisa di-seed utuh: total
+/// baris semua sumber dan spot-check per sumber terbaca lewat pencarian.
+#[tokio::test]
+async fn bundled_databases_seed_all_four_sources() {
+    let (storage, path) = storage().await;
+    let database_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("DatabaseMakanan");
+    let mut resources = Vec::new();
+    let mut names = Vec::new();
+    for name in [
+        "DatabaseFatSecret.csv",
+        "DatabaseNilaiGiziCom.csv",
+        "DatabaseNutriSurvey.csv",
+        "DataPangankuKemenkes2017.csv",
+    ] {
+        let bytes = tokio::fs::read(database_dir.join(name)).await.unwrap();
+        names.push((name.to_string(), bytes.len()));
+        resources.push((name.to_string(), bytes));
+    }
+    let references = resources
+        .iter()
+        .map(|(name, bytes)| (name.as_str(), bytes.as_slice()))
+        .collect::<Vec<_>>();
+    let total = import::synchronize_sources(&storage, &references).await.unwrap();
+    assert!(
+        (9000..=11_000).contains(&total),
+        "total baris tidak wajar: {total}"
+    );
+    // DatabaseNutriSurvey.csv (hasil konversi indo.fta): baris unik "beras ketan hitam".
+    let nutrisurvey = foods::search(&storage, "beras ketan hitam", 5).await.unwrap();
+    assert!(
+        nutrisurvey.iter().any(|food| food.nutrients.get("energi") == Some(&350.0)),
+        "energi beras ketan hitam tidak sesuai DatabaseNutriSurvey"
+    );
+    // DataPangankuKemenkes2017.csv: baris dengan satuan "g"/"Kal".
+    let kemenkes = foods::search(&storage, "Abon haruwan", 5).await.unwrap();
+    assert!(kemenkes.iter().any(|food| food.nutrients.get("energi") == Some(&513.0)), "energi Abon haruwan (Kemenkes) tidak terbaca");
+    // DatabaseNilaiGiziCom.csv (delimiter titik-koma).
+    let gizi = foods::search(&storage, "A &W root beer", 5).await.unwrap();
+    assert!(!gizi.is_empty(), "database NilaiGiziCom tidak terimpor");
+    cleanup(path).await;
+}

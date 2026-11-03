@@ -56,13 +56,18 @@ jobs:
       matrix:
         include:
           - os: ubuntu-22.04
-            args: ''
+            args: '--bundles appimage,deb'
           - os: windows-latest
             args: ''
           - os: macos-latest
             args: ''
     steps:
       - uses: actions/checkout@v4
+      - name: Install system deps (Linux)
+        if: matrix.os == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libssl-dev pkg-config libdbus-1-dev libsecret-1-dev libfuse2
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -72,7 +77,6 @@ jobs:
       - run: npm run build
       - run: npm run tauri:build -- ${{ matrix.args }}
       - name: Upload unsigned bundles
-        if: ${{ !secrets.TAURI_SIGNING_PRIVATE_KEY }}
         uses: actions/upload-artifact@v4
         with:
           name: nutrisurvey-${{ matrix.os }}-unsigned
@@ -111,7 +115,6 @@ jobs:
           NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
           ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
       - name: Upload unsigned mobile bundles
-        if: ${{ !secrets.ANDROID_KEYSTORE_PASSWORD }}
         uses: actions/upload-artifact@v4
         with:
           name: nutrisurvey-${{ matrix.target }}-unsigned

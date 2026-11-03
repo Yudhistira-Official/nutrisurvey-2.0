@@ -4,6 +4,7 @@ import type {
   AiDefaultInfo,
   AiMealRow,
   ExportRequest,
+  ExportFormat,
   ExportResult,
   FoodResult,
   FoodStatus,
@@ -32,6 +33,7 @@ export function createCommandAdapters(invokeFn: CommandInvoker = invokeCommand) 
     getRecommendations: (filters: RecommendationFilter[]) => invokeFn<FoodResult[]>('food_recommendations', { filters }),
     calculateTdee: (request: TdeeRequest) => invokeFn<TdeeResponse>('calculate_tdee', { request }),
     exportToWord: (request: ExportRequest) => invokeFn<ExportResult>('export_word', { request }),
+    exportReport: (request: ExportRequest, kind: ExportFormat) => invokeFn<ExportResult>('export_report', { request, kind }),
     saveProject: (project: ProjectFile) => invokeFn<boolean>('project_save', { project }),
     openProject: () => invokeFn<ProjectFile | null>('project_open'),
     openProjectPath: (path: string) => invokeFn<ProjectFile>('project_open_path', { path }),
@@ -172,6 +174,10 @@ export function streamAiMenu(request: {
 
 export function exportToWord(request: ExportRequest): Promise<ExportResult> {
   return invokeCommand<ExportResult>('export_word', { request });
+}
+
+export function exportReport(request: ExportRequest, kind: ExportFormat): Promise<ExportResult> {
+  return invokeCommand<ExportResult>('export_report', { request, kind });
 }
 
 export function importCsv(bytes: number[], sourceName: string): Promise<number> {

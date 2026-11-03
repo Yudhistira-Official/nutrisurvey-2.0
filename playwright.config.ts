@@ -1,5 +1,9 @@
 import { defineConfig, devices } from '@playwright/test';
 
+// NUTRISURVEY_CDP_ENDPOINT memakai browser eksternal via CDP (mis. Lightpanda:
+// `lightpanda serve --port 9222`) sehingga tidak perlu unduh Chromium — diteruskan
+// lewat fixture tests/e2e/fixtures.ts. Tanpa env tersebut, Playwright memakai
+// Chromium bawaan seperti biasa.
 export default defineConfig({
   testDir: './tests/e2e',
   fullyParallel: true,

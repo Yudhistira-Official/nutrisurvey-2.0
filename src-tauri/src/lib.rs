@@ -403,9 +403,20 @@ pub mod commands {
     where
         H: ExportDeliveryHandler,
     {
-        let template = include_bytes!("../../Assets/template.rtf");
-        let bytes = export::render_rtf(request, template)?;
-        handler.deliver(export::result(bytes))
+        export_report_with_handler(request, export::ExportFormat::Rtf, handler)
+    }
+
+    /// Render laporan dalam format yang dipilih lalu serahkan ke handler.
+    pub fn export_report_with_handler<H>(
+        request: export::ExportRequest,
+        kind: export::ExportFormat,
+        handler: H,
+    ) -> Result<export::ExportResult, error::AppError>
+    where
+        H: ExportDeliveryHandler,
+    {
+        let bytes = export::render(kind, request)?;
+        handler.deliver(export::result(kind, bytes))
     }
 
     #[tauri::command]
@@ -413,17 +424,29 @@ pub mod commands {
         app: AppHandle,
         request: export::ExportRequest,
     ) -> Result<export::ExportResult, error::AppError> {
+        export_report(app, request, export::ExportFormat::Rtf).await
+    }
+
+    /// Ekspor laporan dengan format dipilih (pdf/docx/rtf); di desktop memakai
+    /// dialog simpan dengan filter sesuai format.
+    #[tauri::command]
+    pub async fn export_report(
+        app: AppHandle,
+        request: export::ExportRequest,
+        kind: export::ExportFormat,
+    ) -> Result<export::ExportResult, error::AppError> {
         #[cfg(desktop)]
         {
             use tauri_plugin_dialog::DialogExt;
 
-            let initial = export_word_with_handler(request, Ok)?;
+            let initial =
+                export_report_with_handler(request, kind, Ok)?;
             let (tx, rx) = tokio::sync::oneshot::channel();
             let filename = initial.filename.clone();
             app.dialog()
                 .file()
                 .set_file_name(&filename)
-                .add_filter("Rich Text Format", &["rtf"])
+                .add_filter(kind.label(), &[kind.extension()])
                 .save_file(move |selected| {
                     let _ = tx.send(selected);
                 });
@@ -431,7 +454,7 @@ pub mod commands {
                 .await
                 .map_err(|_| error::AppError::Io("dialog task dropped".into()))?;
             let selected = export::resolve_selected_path(selected.map(|path| path.into_path()))?;
-            let path = export::validate_selected_path(selected.as_deref())?;
+            let path = export::validate_selected_path(selected.as_deref(), kind)?;
             std::fs::write(path, &initial.bytes)?;
             record_history(
                 &app.state::<AppState>().storage,
@@ -451,7 +474,7 @@ pub mod commands {
         #[cfg(mobile)]
         {
             let _ = app;
-            export_word_with_handler(request, |_initial: export::ExportResult| {
+            export_report_with_handler(request, kind, |_initial: export::ExportResult| {
                 export::mobile_delivery_error()
             })
         }
@@ -495,6 +518,7 @@ pub fn run() {
             commands::project_open,
             commands::project_open_path,
             commands::export_word,
+            commands::export_report,
             commands::check_update,
             commands::install_update
         ])

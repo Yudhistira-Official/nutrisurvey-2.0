@@ -1,4 +1,5 @@
-import { test, expect, type Page } from '@playwright/test';
+import { test, expect } from './fixtures';
+import type { Page } from '@playwright/test';
 
 const appUrl = process.env.NUTRISURVEY_SMOKE_URL || 'http://127.0.0.1:4173';
 const mockedSecret = `acceptance-secret-${Date.now()}`;
@@ -14,7 +15,7 @@ const foods = [{
 }];
 
 async function installMockBridge(page: Page) {
-  await page.addInitScript(({ fixtureFoods, secret }) => {
+  await page.addInitScript(({ fixtureFoods, fixtureCsvPath, secret }) => {
     type InvokePayload = { request?: unknown; bytes?: number[]; project?: unknown } | Uint8Array;
     type InvokeOptions = { headers?: Record<string, string> };
     const state = {
@@ -24,8 +25,14 @@ async function installMockBridge(page: Page) {
       rawSecretSeenOnlyInMemory: false,
       projectBytes: [] as number[],
       importedBytes: [] as number[],
+      aiKey: '' as string,
     };
+    // Confirm browser tidak didukung semua driver CDP (mis. Lightpanda):
+    // stub agar alur Buka Proyek deterministik di e2e.
+    window.confirm = () => true;
     const bridge = {
+      // Stub transformCallback untuk Channel @tauri-apps/api (streaming).
+      transformCallback: () => 0,
       invoke: async (command: string, payload?: InvokePayload, options?: InvokeOptions) => {
         const rawInvoke = JSON.stringify({ command, payload, options });
         if (rawInvoke.includes(secret)) state.rawSecretSeenOnlyInMemory = true;
@@ -55,6 +62,19 @@ async function installMockBridge(page: Page) {
           state.importedBytes = payload && !(payload instanceof Uint8Array) ? payload.bytes || [] : [];
           return 1;
         }
+        // Plugin dialog: kembalikan path fixture agar alur impor CSV berjalan
+        // seperti di aplikasi nyata tanpa membuka dialog OS.
+        if (command === 'plugin:dialog|open') return fixtureCsvPath;
+        if (command === 'import_csv_from_path') {
+          state.importedBytes = Array.from(new TextEncoder().encode(fixtureCsvPath));
+          return 1;
+        }
+        if (command === 'ai_key_save') { state.aiKey = String((payload as { value?: string } | undefined)?.value ?? ''); return null; }
+        if (command === 'ai_key_load') return state.aiKey || null;
+        if (command === 'ai_key_delete') { state.aiKey = ''; return null; }
+        if (command === 'ai_default_info') return { available: false, provider: 'openrouter', model: '', baseUrl: '' };
+        // Streaming tidak didukung mock: lempar error yang memicu fallback generate_ai_menu.
+        if (command === 'stream_ai_menu') throw new Error('network unavailable in mock bridge');
         if (command === 'generate_ai_menu') return [{
           meal_type: 'Makan Pagi',
           requested_keyword: 'Nasi Fixture',
@@ -69,12 +89,12 @@ async function installMockBridge(page: Page) {
           nutrients: { energi: 130 },
           reasoning: 'fixture',
         }];
-        if (command === 'export_word') return {
-          filename: 'Laporan_Nutrisi_acceptance.rtf',
-          contentType: 'application/rtf',
+        if (command === 'export_word' || command === 'export_report') return {
+          filename: command === 'export_report' ? 'Laporan_Nutrisi_acceptance.pdf' : 'Laporan_Nutrisi_acceptance.rtf',
+          contentType: command === 'export_report' ? 'application/pdf' : 'application/rtf',
           bytes: [123, 92, 117, 53, 53, 51, 53, 54, 63],
           delivery: 'saved',
-          savedPath: 'acceptance-report.rtf',
+          savedPath: command === 'export_report' ? 'acceptance-report.pdf' : 'acceptance-report.rtf',
         };
         if (command === 'project_save') {
           const objectPayload = payload instanceof Uint8Array ? undefined : payload;
@@ -89,7 +109,7 @@ async function installMockBridge(page: Page) {
     };
     (window as Window & { __TAURI_INTERNALS__?: unknown; __NUTRISURVEY_SMOKE__?: unknown }).__TAURI_INTERNALS__ = bridge;
     (window as Window & { __NUTRISURVEY_SMOKE__?: unknown }).__NUTRISURVEY_SMOKE__ = { state, secret };
-  }, { fixtureFoods: foods, secret: mockedSecret });
+  }, { fixtureFoods: foods, fixtureCsvPath: '/tmp/nutrisurvey-fixture.csv', secret: mockedSecret });
 }
 
 test('native UI smoke covers readiness, search, recommendations, import, roundtrip, TDEE, AI, and report export', async ({ page }) => {
@@ -98,15 +118,22 @@ test('native UI smoke covers readiness, search, recommendations, import, roundtr
   await expect(page.getByRole('heading', { name: 'Manajemen Menu' })).toBeVisible();
   await expect(page.getByText('Database siap')).toBeVisible();
 
+  // Popup donasi menutup UI dengan overlay; tutup dulu agar klik berikutnya tidak terblokir.
+  const donation = page.getByRole('dialog', { name: 'Donasi' });
+  if (await donation.isVisible()) {
+    await donation.getByRole('button').click();
+    await expect(donation).toBeHidden();
+  }
+
   await page.locator('tbody button').first().click();
   await page.getByPlaceholder('Ketik nama makanan...').fill('nasi');
   await page.getByRole('button', { name: /Nasi Fixture/ }).click();
   await expect(page.getByText('Nasi Fixture')).toBeVisible();
 
   await page.getByRole('button', { name: 'Rekomendasi' }).click();
-  await page.getByRole('button', { name: 'Cari Rekomendasi' }).click();
-  await expect(page.getByText('Nasi Fixture')).toBeVisible();
-  await page.getByRole('button', { name: '+ Tambah' }).click();
+  await page.getByRole('button', { name: 'Cari Makanan' }).click();
+  await expect(page.getByText('Nasi Fixture').first()).toBeVisible();
+  await page.getByRole('article').getByRole('button', { name: '+ Tambah' }).first().click();
   await expect(page.getByText('Daftar Konsumsi')).toBeVisible();
 
   await page.getByRole('button', { name: 'Impor CSV' }).click();
@@ -114,32 +141,44 @@ test('native UI smoke covers readiness, search, recommendations, import, roundtr
 
   await page.getByRole('button', { name: 'Simpan Proyek' }).click();
   await expect(page.getByText('Proyek berhasil disimpan')).toBeVisible();
-  page.once('dialog', dialog => dialog.accept());
   await page.getByRole('button', { name: 'Buka Proyek' }).click();
   await expect(page.getByText('Proyek berhasil dibuka')).toBeVisible();
 
   await page.getByRole('button', { name: 'Kalkulator TDEE' }).click();
   await page.getByRole('button', { name: 'Hitung & Terapkan' }).click();
-  await expect(page.getByText('2035 kcal')).toBeVisible();
+  await expect(page.getByText('2035 kcal', { exact: true })).toBeVisible();
 
   await page.getByRole('button', { name: 'AI Meal Planner' }).click();
+  // Konfigurasi AI kini ada di Pengaturan (bukan inline di planner).
+  await page.getByRole('button', { name: 'Pengaturan' }).click();
   await page.getByLabel('Model').fill('acceptance-model');
   await page.getByLabel('API Key').fill(mockedSecret);
-  await page.getByRole('button', { name: 'Generate AI Meal Plan' }).click();
-  await expect(page.getByText('Nasi Fixture')).toBeVisible();
-  await page.getByRole('button', { name: /Implement/ }).click();
+  await page.getByRole('button', { name: 'Simpan Konfigurasi' }).click();
+  await expect(page.getByText('Konfigurasi Tersimpan')).toBeVisible();
+  await page.getByRole('button', { name: /Kembali/ }).click();
+  await page.getByRole('button', { name: 'AI Meal Planner' }).click();
+  // Asesmen PAGT: 4 langkah, cukup jawab "Tidak Ada" lalu buat plan.
+  for (let step = 0; step < 4; step += 1) {
+    await page.getByRole('button', { name: 'Tidak Ada' }).click();
+  }
+  await page.getByRole('button', { name: /Buat Plan Menu Sekarang/ }).click();
+  await expect(page.getByText(/Rencana makan selesai/)).toBeVisible();
+  await expect(page.getByText('Nasi Fixture').first()).toBeVisible();
+  await page.getByRole('button', { name: 'Terapkan ke Dashboard' }).click();
 
-  await page.getByRole('button', { name: 'Word Report' }).click();
+  await page.getByRole('button', { name: 'Ekspor Laporan' }).click();
+  await page.getByRole('button', { name: 'Ekspor PDF' }).click();
   await expect(page.getByText(/Laporan tersimpan/)).toBeVisible();
   const smokeState = await page.evaluate(() => (window as Window & { __NUTRISURVEY_SMOKE__?: { state: { calls: Array<{ command: string; payloadKeys: string[] }>; serializedCalls: string[]; logs: string[]; rawSecretSeenOnlyInMemory: boolean; projectBytes: number[]; importedBytes: number[] } } }).__NUTRISURVEY_SMOKE__?.state);
   expect(smokeState?.calls.map(call => call.command)).toEqual(expect.arrayContaining([
     'food_status',
     'food_search',
     'food_recommendations',
-    'import_food_csv',
+    'plugin:dialog|open',
+    'import_csv_from_path',
     'calculate_tdee',
     'generate_ai_menu',
-    'export_word',
+    'export_report',
   ]));
   expect(smokeState?.projectBytes.length).toBeGreaterThan(0);
   expect(smokeState?.importedBytes.length).toBeGreaterThan(0);
