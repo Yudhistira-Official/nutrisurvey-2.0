@@ -262,20 +262,32 @@ pub mod commands {
         if !path_ref.is_file() {
             return Err(error::AppError::Validation("file does not exist".into()));
         }
-        #[cfg(target_os = "linux")]
-        let mut command = std::process::Command::new("xdg-open");
-        #[cfg(target_os = "macos")]
-        let mut command = std::process::Command::new("open");
-        #[cfg(target_os = "windows")]
-        let mut command = {
-            let mut command = std::process::Command::new("cmd");
-            command.args(["/C", "start", ""]);
+        #[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
+        {
+            #[cfg(target_os = "linux")]
+            let mut command = std::process::Command::new("xdg-open");
+            #[cfg(target_os = "macos")]
+            let mut command = std::process::Command::new("open");
+            #[cfg(target_os = "windows")]
+            let mut command = {
+                let mut command = std::process::Command::new("cmd");
+                command.args(["/C", "start", ""]);
+                command
+            };
             command
-        };
-        command
-            .arg(path_ref)
-            .spawn()
-            .map_err(|cause| error::AppError::Io(cause.to_string()))?;
+                .arg(path_ref)
+                .spawn()
+                .map_err(|cause| error::AppError::Io(cause.to_string()))?;
+        }
+        #[cfg(target_os = "android")]
+        {
+            let _ = path_ref;
+            return Err(error::AppError::Validation(
+                "Membuka file eksternal belum didukung di Android".into(),
+            ));
+        }
+        // Tidak terjangkau di Android (early return di atas).
+        #[allow(unreachable_code)]
         Ok(())
     }
 
