@@ -11,6 +11,7 @@
     "test:compile": "tsc --noEmit --allowImportingTsExtensions",
     "test:e2e": "playwright test tests/e2e/smoke.spec.ts",
     "typecheck": "tsc --noEmit",
+    "tauri": "tauri",
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build"
   },
