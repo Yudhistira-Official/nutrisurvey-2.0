@@ -1,0 +1,52 @@
+name: macOS DMG rebuild
+
+# Bangun ulang .dmg macOS universal dan unggah ke release tag yang diberikan.
+# Dipakai bila job macos pada Release gagal untuk tag yang sudah ada.
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag rilis tujuan (mis. v2.2.0)'
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  dmg:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install Rust stable (universal targets)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: './src-tauri -> target'
+
+      - name: Install frontend deps
+        run: npm ci
+
+      - name: Build universal DMG
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          tauriScript: npx tauri
+          tagName: ${{ inputs.tag }}
+          releaseName: "NutriSurvey ${{ inputs.tag }}"
+          releaseDraft: false
+          prerelease: false
+          args: '--target universal-apple-darwin --bundles dmg'
