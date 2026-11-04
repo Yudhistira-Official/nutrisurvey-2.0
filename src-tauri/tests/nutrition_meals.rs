@@ -34,9 +34,11 @@ fn tdee_uses_clinical_reference_weight_for_obesity() {
     })
     .unwrap();
     assert_eq!(response.bmi, 38.06);
-    assert_eq!(response.nutrition_classification, "Obes morbid");
+    // Tabel 1 INTERPRETASI IMT (Asia Pasifik): >= 30 -> Obes II.
+    assert_eq!(response.nutrition_classification, "Obes II");
     assert_eq!(response.ideal_weight, 63.0);
     assert_eq!(response.adjusted_weight, 74.75);
+    // Obes II ke atas (> 30) memakai BB Adjusted.
     assert_eq!(response.reference_weight, 74.75);
 }
 
@@ -54,7 +56,91 @@ fn tdee_uses_actual_weight_for_normal_bmi() {
     })
     .unwrap();
     assert_eq!(response.nutrition_classification, "Normal");
+    // Malnutrisi berat - Normal memakai BB Aktual.
     assert_eq!(response.reference_weight, 70.0);
+}
+
+#[test]
+fn asia_pacific_classification_follows_interpretasi_imt_table() {
+    let build = |bmi_kg: f64| {
+        nutrition::calculate_tdee(nutrisurvey_lib::models::TdeeRequest {
+            weight_kg: bmi_kg,
+            height_cm: 100.0,
+            age: 30,
+            gender: "Male".into(),
+            activity_factor: 1.2,
+            injury_factor: 1.0,
+            is_manual_factors: false,
+            bmi_standard: "asia_pacific".into(),
+        })
+        .unwrap()
+    };
+    // < 18,5 -> Underweight (berat badan kurang)
+    assert_eq!(build(17.0).nutrition_classification, "Underweight (berat badan kurang)");
+    // 18,5 - 22,9 -> Normal
+    assert_eq!(build(22.9).nutrition_classification, "Normal");
+    // 23 - 24,9 -> Beresiko
+    assert_eq!(build(24.5).nutrition_classification, "Beresiko");
+    // 25 - 29,9 -> Obes I
+    assert_eq!(build(27.0).nutrition_classification, "Obes I");
+    // >= 30 -> Obes II
+    assert_eq!(build(30.0).nutrition_classification, "Obes II");
+}
+
+#[test]
+fn overweight_and_obes_grade_i_use_ideal_body_weight() {
+    let build = |weight_kg: f64, standard: &str| {
+        nutrition::calculate_tdee(nutrisurvey_lib::models::TdeeRequest {
+            weight_kg,
+            height_cm: 170.0,
+            age: 30,
+            gender: "Male".into(),
+            activity_factor: 1.2,
+            injury_factor: 1.0,
+            is_manual_factors: false,
+            bmi_standard: standard.into(),
+        })
+        .unwrap()
+    };
+    // Overweight (23-24,9): BB acuan = BBI. (75 kg @170 cm -> BMI 25,9, Obes I;
+    //  70,8 kg -> BMI 24,5, Beresiko.)
+    let overweight = build(70.8, "asia_pacific");
+    assert_eq!(overweight.nutrition_classification, "Beresiko");
+    assert_eq!(overweight.reference_weight, overweight.ideal_weight);
+    // Obes grade I (25-30): BB acuan = BBI.
+    let obes_i = build(85.0, "asia_pacific");
+    assert_eq!(obes_i.nutrition_classification, "Obes I");
+    assert_eq!(obes_i.reference_weight, obes_i.ideal_weight);
+    // WHO: overweight mulai 25.
+    let who = build(85.0, "who");
+    assert_eq!(who.nutrition_classification, "Overweight");
+    assert_eq!(who.reference_weight, who.ideal_weight);
+    let who_obes = build(95.0, "who");
+    assert_eq!(who_obes.nutrition_classification, "Obesitas");
+    assert_eq!(who_obes.reference_weight, who_obes.adjusted_weight);
+}
+
+#[test]
+fn ideal_weight_uses_gender_height_thresholds() {
+    let build = |height_cm: f64, gender: &str| {
+        nutrition::calculate_tdee(nutrisurvey_lib::models::TdeeRequest {
+            weight_kg: 60.0,
+            height_cm,
+            age: 30,
+            gender: gender.into(),
+            activity_factor: 1.2,
+            injury_factor: 1.0,
+            is_manual_factors: false,
+            bmi_standard: "asia_pacific".into(),
+        })
+        .unwrap()
+    };
+    // Pria >= 160 cm dan wanita >= 150 cm: BBI = 90% x (TB - 100).
+    assert_eq!(build(170.0, "Male").ideal_weight, 63.0);
+    assert_eq!(build(150.0, "Female").ideal_weight, 45.0);
+    // Pria < 160 dan wanita < 150: BBI = TB - 100.
+    assert_eq!(build(155.0, "Male").ideal_weight, 55.0);
+    assert_eq!(build(145.0, "Female").ideal_weight, 45.0);
 }
 
 #[test]

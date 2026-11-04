@@ -61,22 +61,19 @@ fn classify_bmi(bmi: f64, standard: &str) -> &'static str {
             "Obesitas"
         }
     } else {
-        if bmi < 16.0 {
-            "Malnutrisi berat"
-        } else if bmi < 17.0 {
-            "Malnutrisi sedang"
-        } else if bmi < 18.5 {
-            "Malnutrisi ringan"
+        // Tabel 1 INTERPRETASI IMT (Asia Pasifik):
+        // < 18,5 Underweight; 18,5-22,9 Normal; >= 23 Overweight dengan
+        // 23-24,9 Beresiko; 25-29,9 Obes I; >= 30 Obes II.
+        if bmi < 18.5 {
+            "Underweight (berat badan kurang)"
         } else if bmi < 23.0 {
             "Normal"
         } else if bmi < 25.0 {
-            "Overweight"
-        } else if bmi <= 30.0 {
-            "Obes grade I"
-        } else if bmi <= 35.0 {
-            "Obes grade II"
+            "Beresiko"
+        } else if bmi < 30.0 {
+            "Obes I"
         } else {
-            "Obes morbid"
+            "Obes II"
         }
     }
 }
