@@ -237,12 +237,12 @@ async fn import_scraper(
             let name_key_space = format!("komponen nutrient {index}");
             let value_key_underscore = format!("isi_nutrient_{index}");
             let value_key_space = format!("isi nutrient {index}");
-            let name_index = headers.iter().position(|header| {
-                header == &name_key_underscore || header == &name_key_space
-            });
-            let value_index = headers.iter().position(|header| {
-                header == &value_key_underscore || header == &value_key_space
-            });
+            let name_index = headers
+                .iter()
+                .position(|header| header == &name_key_underscore || header == &name_key_space);
+            let value_index = headers
+                .iter()
+                .position(|header| header == &value_key_underscore || header == &value_key_space);
             let (Some(name_index), Some(value_index)) = (name_index, value_index) else {
                 continue;
             };

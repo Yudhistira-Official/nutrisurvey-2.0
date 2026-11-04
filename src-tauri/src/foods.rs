@@ -158,7 +158,7 @@ pub async fn ai_candidate_catalog(
     limit: usize,
 ) -> Result<Vec<FoodResult>, AppError> {
     let mut foods = all_foods(storage).await?;
-    foods.sort_by(|left, right| left.name.to_lowercase().cmp(&right.name.to_lowercase()));
+    foods.sort_by_key(|food| food.name.to_lowercase());
     foods.truncate(limit);
     Ok(foods)
 }

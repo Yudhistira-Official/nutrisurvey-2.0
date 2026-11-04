@@ -75,7 +75,9 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - run: npm ci
       - run: npm run build
-      - run: npm run tauri:build -- ${{ matrix.args }}
+      # Bangun desktop TANPA updater artifacts agar tidak butuh kunci signing
+      # (pengecekan kompilasi bundler; artefak rilis dibuat oleh workflow Release).
+      - run: npm run tauri:build -- ${{ matrix.args }} --config '{"bundle":{"createUpdaterArtifacts":false}}'
       - name: Upload unsigned bundles
         uses: actions/upload-artifact@v4
         with:
@@ -97,7 +99,6 @@ jobs:
       - run: npx tauri ios init --ci
       - run: npx tauri ios build --debug
         env:
-          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          APPLE_PROVISIONING_PROFILE: ${{ secrets.APPLE_PROVISIONING_PROFILE }}
+          # Pengecekan kompilasi tanpa akun Apple Developer.
+          CODE_SIGNING_ALLOWED: 'NO'
+          CODE_SIGN_IDENTITY: ''

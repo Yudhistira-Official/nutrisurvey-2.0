@@ -451,8 +451,7 @@ pub mod commands {
         {
             use tauri_plugin_dialog::DialogExt;
 
-            let initial =
-                export_report_with_handler(request, kind, Ok)?;
+            let initial = export_report_with_handler(request, kind, Ok)?;
             let (tx, rx) = tokio::sync::oneshot::channel();
             let filename = initial.filename.clone();
             app.dialog()
@@ -618,14 +617,12 @@ pub async fn seed_configured_resources(storage: &storage::Storage) -> Result<u64
     let mut resources: Vec<(String, Vec<u8>)> = Vec::new();
     for (name, url) in &github_csvs {
         match client.get(*url).send().await {
-            Ok(response) if response.status().is_success() => {
-                match response.bytes().await {
-                    Ok(bytes) if !bytes.is_empty() => {
-                        resources.push((name.to_string(), bytes.to_vec()));
-                    }
-                    _ => {}
+            Ok(response) if response.status().is_success() => match response.bytes().await {
+                Ok(bytes) if !bytes.is_empty() => {
+                    resources.push((name.to_string(), bytes.to_vec()));
                 }
-            }
+                _ => {}
+            },
             _ => {}
         }
     }

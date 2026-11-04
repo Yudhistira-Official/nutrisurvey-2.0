@@ -7,11 +7,11 @@ import type { Browser } from '@playwright/test';
 const cdpEndpoint = process.env.NUTRISURVEY_CDP_ENDPOINT;
 
 export const test = base.extend<{ browser: Browser }>({
-  browser: async ({ }, use) => {
+  browser: async ({ }, useFixture) => {
     const browser = cdpEndpoint
       ? await chromium.connectOverCDP(cdpEndpoint, { timeout: 60_000 })
       : await chromium.launch();
-    await use(browser);
+    await useFixture(browser);
     await browser.close();
   },
 });

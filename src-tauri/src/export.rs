@@ -167,7 +167,10 @@ pub fn build_report(request: &ExportRequest) -> Report {
                 .collect()
         } else {
             ids.into_iter()
-                .map(|id| MealTime { label: id.clone(), id })
+                .map(|id| MealTime {
+                    label: id.clone(),
+                    id,
+                })
                 .collect()
         }
     });
@@ -567,12 +570,7 @@ fn nutrient_columns(
             } else {
                 "-".into()
             };
-            (
-                (*name).to_string(),
-                analysis,
-                recommendation,
-                percent,
-            )
+            ((*name).to_string(), analysis, recommendation, percent)
         })
         .collect()
 }
@@ -673,7 +671,8 @@ fn xml_escape(value: &str) -> String {
 }
 
 /// Times New Roman meniru font body template RTF aplikasi NutriSurvey asli.
-const DOCX_FONT: &str = r#"<w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman" w:cs="Times New Roman"/>"#;
+const DOCX_FONT: &str =
+    r#"<w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman" w:cs="Times New Roman"/>"#;
 
 fn docx_paragraph(text: &str, bold: bool, size_half_points: u32) -> String {
     let mut rpr = String::new();
@@ -835,10 +834,7 @@ pub fn render_docx(request: ExportRequest) -> Result<Vec<u8>, AppError> {
 <Relationship Id=\"rId1\" Type=\"http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument\" Target=\"word/document.xml\"/>\
 </Relationships>";
     Ok(zip_store(&[
-        (
-            "[Content_Types].xml",
-            content_types.as_bytes(),
-        ),
+        ("[Content_Types].xml", content_types.as_bytes()),
         ("_rels/.rels", rels.as_bytes()),
         ("word/document.xml", document.as_bytes()),
     ]))
@@ -854,12 +850,7 @@ fn nutrient_table_rows(
         .into_iter()
         .map(|(name, analysis, recommendation, percent)| {
             let plain = |value: String| value.replace(" ug", " µg");
-            (
-                name,
-                plain(analysis),
-                plain(recommendation),
-                percent,
-            )
+            (name, plain(analysis), plain(recommendation), percent)
         })
         .collect()
 }
@@ -913,19 +904,27 @@ fn pdf_row(bold: bool, columns: [f64; 4], cells: [String; 4]) -> PdfRow {
     PdfRow {
         bold,
         size: 10.0,
-        segments: columns.into_iter().zip(cells).map(|(x, text)| (x, text)).collect(),
+        segments: columns.into_iter().zip(cells).collect(),
     }
 }
 
 /// Baris tunggal rata kiri pada margin.
 fn pdf_line(text: String, bold: bool) -> PdfRow {
-    PdfRow { bold, size: if bold { 13.0 } else { 10.0 }, segments: vec![(PDF_MARGIN, text)] }
+    PdfRow {
+        bold,
+        size: if bold { 13.0 } else { 10.0 },
+        segments: vec![(PDF_MARGIN, text)],
+    }
 }
 
 /// Baris aturan (===== / _____): 12 pt agar memenuhi lebar halaman,
 /// seperti contoh asli (69 karakter `=` = 467 pt penuh).
 fn pdf_rule(text: String) -> PdfRow {
-    PdfRow { bold: false, size: 12.0, segments: vec![(PDF_MARGIN, text)] }
+    PdfRow {
+        bold: false,
+        size: 12.0,
+        segments: vec![(PDF_MARGIN, text)],
+    }
 }
 
 /// Judul di tengah halaman, meniru posisi "Analysis of the food record" /
@@ -951,21 +950,22 @@ pub fn render_pdf(request: ExportRequest) -> Result<Vec<u8>, AppError> {
     let dash_line = "_".repeat(78);
 
     // ---- Halaman: catatan makanan ----
-    let mut lines: Vec<PdfRow> = Vec::new();
-    lines.push(pdf_centered("HASIL PERHITUNGAN DIET"));
-    lines.push(pdf_rule(separator.clone()));
-    lines.push(pdf_row(
-        false,
-        PDF_FOOD_COLUMNS,
-        [
-            "Nama Makanan".into(),
-            "Jumlah".into(),
-            "energy".into(),
-            "carbohydr.".into(),
-        ],
-    ));
-    lines.push(pdf_rule(dash_line.clone()));
-    lines.push(pdf_line(String::new(), false));
+    let mut lines: Vec<PdfRow> = vec![
+        pdf_centered("HASIL PERHITUNGAN DIET"),
+        pdf_rule(separator.clone()),
+        pdf_row(
+            false,
+            PDF_FOOD_COLUMNS,
+            [
+                "Nama Makanan".into(),
+                "Jumlah".into(),
+                "energy".into(),
+                "carbohydr.".into(),
+            ],
+        ),
+        pdf_rule(dash_line.clone()),
+        pdf_line(String::new(), false),
+    ];
     for meal in &report.meals {
         lines.push(pdf_line(meal.label.clone(), true));
         for food in &meal.foods {
@@ -1008,32 +1008,32 @@ pub fn render_pdf(request: ExportRequest) -> Result<Vec<u8>, AppError> {
     }
 
     // ---- Halaman baru: HASIL PERHITUNGAN (hitungan diet) ----
-    let mut result: Vec<PdfRow> = Vec::new();
-    result.push(pdf_centered("HASIL PERHITUNGAN"));
-    result.push(pdf_rule(separator.clone()));
-    result.push(pdf_row(
-        false,
-        PDF_NUTRIENT_COLUMNS,
-        [
-            "Zat Gizi".into(),
-            "hasil analisis".into(),
-            "rekomendasi".into(),
-            "persentase".into(),
-        ],
-    ));
-    result.push(pdf_row(
-        false,
-        PDF_NUTRIENT_COLUMNS,
-        [
-            "content".into(),
-            "nilai".into(),
-            "nilai/hari".into(),
-            "pemenuhan".into(),
-        ],
-    ));
-    result.push(pdf_rule(dash_line.clone()));
-    for (name, analysis, recommendation, percent) in
-        nutrient_table_rows(&report, targets.as_ref())
+    let mut result: Vec<PdfRow> = vec![
+        pdf_centered("HASIL PERHITUNGAN"),
+        pdf_rule(separator.clone()),
+        pdf_row(
+            false,
+            PDF_NUTRIENT_COLUMNS,
+            [
+                "Zat Gizi".into(),
+                "hasil analisis".into(),
+                "rekomendasi".into(),
+                "persentase".into(),
+            ],
+        ),
+        pdf_row(
+            false,
+            PDF_NUTRIENT_COLUMNS,
+            [
+                "content".into(),
+                "nilai".into(),
+                "nilai/hari".into(),
+                "pemenuhan".into(),
+            ],
+        ),
+        pdf_rule(dash_line.clone()),
+    ];
+    for (name, analysis, recommendation, percent) in nutrient_table_rows(&report, targets.as_ref())
     {
         result.push(pdf_row(
             false,
@@ -1093,11 +1093,7 @@ pub fn render_pdf(request: ExportRequest) -> Result<Vec<u8>, AppError> {
         offsets.push(pdf.len());
         pdf.push_str(&format!("{} 0 obj\n{}\nendobj\n", offsets.len(), body));
     };
-    add_object(
-        &mut pdf,
-        &mut offsets,
-        "<< /Type /Catalog /Pages 2 0 R >>",
-    );
+    add_object(&mut pdf, &mut offsets, "<< /Type /Catalog /Pages 2 0 R >>");
     let kids: Vec<String> = (0..page_count)
         .map(|index| format!("{} 0 R", 6 + index * 2))
         .collect();
@@ -1125,9 +1121,7 @@ pub fn render_pdf(request: ExportRequest) -> Result<Vec<u8>, AppError> {
         add_object(
             &mut pdf,
             &mut offsets,
-            &format!(
-                "<< /Length {stream_length} >>\nstream\n{stream}\nendstream"
-            ),
+            &format!("<< /Length {stream_length} >>\nstream\n{stream}\nendstream"),
         );
         add_object(
             &mut pdf,
@@ -1227,8 +1221,10 @@ pub fn zip_store(entries: &[(&str, &[u8])]) -> Vec<u8> {
 pub mod test_support {
     /// Kembalikan (entri, offset central directory) dari ZIP STORE.
     pub fn parse_stored_zip(bytes: &[u8]) -> (Vec<(String, Vec<u8>)>, usize) {
-        let read_u16 = |offset: usize| u16::from_le_bytes(bytes[offset..offset + 2].try_into().unwrap());
-        let read_u32 = |offset: usize| u32::from_le_bytes(bytes[offset..offset + 4].try_into().unwrap());
+        let read_u16 =
+            |offset: usize| u16::from_le_bytes(bytes[offset..offset + 2].try_into().unwrap());
+        let read_u32 =
+            |offset: usize| u32::from_le_bytes(bytes[offset..offset + 4].try_into().unwrap());
         let mut entries = Vec::new();
         let mut cursor = 0;
         while cursor + 4 <= bytes.len() && read_u32(cursor) == 0x0403_4b50 {
@@ -1237,10 +1233,8 @@ pub mod test_support {
             let crc = read_u32(cursor + 14);
             let compressed_size = read_u32(cursor + 18) as usize;
             let data_start = cursor + 30 + name_length + extra_length;
-            let name = String::from_utf8_lossy(
-                &bytes[cursor + 30..cursor + 30 + name_length],
-            )
-            .to_string();
+            let name =
+                String::from_utf8_lossy(&bytes[cursor + 30..cursor + 30 + name_length]).to_string();
             let data = bytes[data_start..data_start + compressed_size].to_vec();
             assert_eq!(
                 super::crc32(&data),
