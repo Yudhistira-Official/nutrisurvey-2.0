@@ -38,6 +38,7 @@ pub mod commands {
 
     #[tauri::command]
     pub async fn install_update(app: AppHandle) -> Result<(), error::AppError> {
+        use tauri::Emitter;
         use tauri_plugin_updater::UpdaterExt;
         let Some(update) = app
             .updater()
@@ -48,11 +49,27 @@ pub mod commands {
         else {
             return Ok(());
         };
+        // Teruskan progres unduhan ke frontend lewat event updater://progress
+        // agar UI menampilkan indikator persentase selama pembaruan.
+        let emitter = app.clone();
+        let downloaded = std::sync::atomic::AtomicU64::new(0);
         update
-            .download_and_install(|_bytes, _total| {}, || {})
+            .download_and_install(
+                move |chunk: usize, total: Option<u64>| {
+                    let received = downloaded.fetch_add(chunk as u64, std::sync::atomic::Ordering::Relaxed) + chunk as u64;
+                    let _ = emitter.emit(
+                        "updater://progress",
+                        serde_json::json!({ "downloaded": received, "total": total }),
+                    );
+                },
+                || {},
+            )
             .await
             .map_err(|cause| error::AppError::Io(cause.to_string()))?;
-        Ok(())
+        let _ = app.emit("updater://progress", serde_json::json!({ "installed": true }));
+        // Mulai ulang otomatis setelah terpasang (AppImage memakai $APPIMAGE).
+        // `restart` tidak pernah kembali, jadi menjadi ekspresi akhir fungsi.
+        app.restart()
     }
 
     #[tauri::command]

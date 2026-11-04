@@ -87,3 +87,11 @@
   .card{padding:14px}
   .assessment-summary,.result-grid{margin-top:12px}
 }
+/* Overlay pembaruan aplikasi: menutupi UI agar pengguna tidak berinteraksi
+   selama unduh/pasang, dengan bilah progres persentase. */
+.update-overlay{position:fixed;inset:0;z-index:40;background:#123b2acc;display:grid;place-items:center;padding:20px;backdrop-filter:blur(4px)}
+.update-overlay-card{width:min(420px,92%);display:grid;gap:10px;text-align:center}
+.update-overlay-card h3{margin:0}
+.update-overlay-card .progress{height:12px;background:#e8f0e5;border-radius:8px;overflow:hidden}
+.update-overlay-card .progress i{display:block;height:100%;background:var(--primary);transition:width .3s ease}
+.update-percent{color:var(--primary);font-size:20px}

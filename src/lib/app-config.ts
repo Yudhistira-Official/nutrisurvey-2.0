@@ -44,7 +44,13 @@ type StringKey =
   | 'export.cancel'
   | 'db.ready'
   | 'db.preparing'
-  | 'version.label';
+  | 'version.label'
+  | 'updater.title'
+  | 'updater.downloading'
+  | 'updater.installing'
+  | 'updater.restarting'
+  | 'updater.pleaseWait'
+  | 'updater.failed';
 
 const STRINGS: Record<StringKey, Record<Language, string>> = {
   'app.name': { id: 'NutriSurvey', en: 'NutriSurvey' },
@@ -73,6 +79,12 @@ const STRINGS: Record<StringKey, Record<Language, string>> = {
   'db.ready': { id: 'Database siap', en: 'Database ready' },
   'db.preparing': { id: 'Menyiapkan database', en: 'Preparing database' },
   'version.label': { id: 'Versi', en: 'Version' },
+  'updater.title': { id: 'Memperbarui aplikasi', en: 'Updating app' },
+  'updater.downloading': { id: 'Mengunduh pembaruan...', en: 'Downloading update...' },
+  'updater.installing': { id: 'Memasang pembaruan...', en: 'Installing update...' },
+  'updater.restarting': { id: 'Aplikasi akan menutup dan terbuka kembali otomatis.', en: 'The app will close and reopen automatically.' },
+  'updater.pleaseWait': { id: 'Mohon tunggu, jangan tutup aplikasi.', en: 'Please wait, do not close the app.' },
+  'updater.failed': { id: 'Pembaruan gagal. Jalankan ulang aplikasi lalu coba lagi.', en: 'Update failed. Restart the app and try again.' },
 };
 
 /// Terjemahkan kunci UI sesuai `LANGUAGE` di atas.
