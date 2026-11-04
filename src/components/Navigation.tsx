@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { checkUpdate, installUpdate } from '../lib/commands';
+import { APP_VERSION, t } from '../lib/app-config';
 
 export type Section = 'dashboard' | 'ai' | 'recommendations' | 'tdee';
 
@@ -15,10 +16,10 @@ export default function Navigation({ section, onSection, onSave, onOpen, onImpor
   onSettings: () => void;
 }) {
   const items: Array<[Section, string, string]> = [
-    ['dashboard', 'Dashboard', '⌂'],
-    ['ai', 'AI Meal Planner', '✦'],
-    ['recommendations', 'Rekomendasi', '◇'],
-    ['tdee', 'Kalkulator TDEE', '◌'],
+    ['dashboard', t('nav.dashboard'), '⌂'],
+    ['ai', t('nav.ai'), '✦'],
+    ['recommendations', t('nav.recommendations'), '◇'],
+    ['tdee', t('nav.tdee'), '◌'],
   ];
   const [updateVersion, setUpdateVersion] = useState<string | null>(null);
   const [installing, setInstalling] = useState(false);
@@ -41,15 +42,15 @@ export default function Navigation({ section, onSection, onSave, onOpen, onImpor
   };
 
   return <nav className="sidebar">
-    <div className="sidebar-brand"><div className="brand-mark">N</div><div><h1>NutriSurvey <span>Pro</span></h1><p>Nutrition workspace</p></div></div>
-    {updateVersion && <div className="update-banner"><div><b>Update tersedia</b><small>v{updateVersion}</small></div><button onClick={() => void doInstall()} disabled={installing}>{installing ? 'Menginstal...' : 'Instal Sekarang'}</button></div>}
-    <div className="nav-group"><span className="nav-group-label">Menu Utama</span><div className="nav-links">{items.map(([id, label, icon]) => <button className={section === id ? 'active' : ''} key={id} onClick={() => onSection(id)}><span className="nav-icon" aria-hidden="true">{icon}</span><span>{label}</span></button>)}</div></div>
-    <div className="nav-group nav-actions"><span className="nav-group-label">Workspace</span>
-      <button onClick={onSave}><span className="nav-icon" aria-hidden="true">↓</span><span>Simpan Proyek</span></button>
-      <button onClick={onOpen}><span className="nav-icon" aria-hidden="true">↑</span><span>Buka Proyek</span></button>
-      <button onClick={onImportCsv}><span className="nav-icon" aria-hidden="true">＋</span><span>Impor CSV</span></button>
-      <button onClick={onReport}><span className="nav-icon" aria-hidden="true">▤</span><span>Ekspor Laporan</span></button>
+    <div className="sidebar-brand"><div className="brand-mark">N</div><div><h1>{t('app.name')} <span>{t('app.suffix')}</span></h1><p>{t('app.subtitle')}</p></div></div>
+    {updateVersion && <div className="update-banner"><div><b>{t('update.available')}</b><small>v{updateVersion}</small></div><button onClick={() => void doInstall()} disabled={installing}>{installing ? t('update.installing') : t('update.install')}</button></div>}
+    <div className="nav-group"><span className="nav-group-label">{t('menu.label')}</span><div className="nav-links">{items.map(([id, label, icon]) => <button className={section === id ? 'active' : ''} key={id} onClick={() => onSection(id)}><span className="nav-icon" aria-hidden="true">{icon}</span><span>{label}</span></button>)}</div></div>
+    <div className="nav-group nav-actions"><span className="nav-group-label">{t('workspace.label')}</span>
+      <button onClick={onSave}><span className="nav-icon" aria-hidden="true">↓</span><span>{t('action.save')}</span></button>
+      <button onClick={onOpen}><span className="nav-icon" aria-hidden="true">↑</span><span>{t('action.open')}</span></button>
+      <button onClick={onImportCsv}><span className="nav-icon" aria-hidden="true">＋</span><span>{t('action.importCsv')}</span></button>
+      <button onClick={onReport}><span className="nav-icon" aria-hidden="true">▤</span><span>{t('action.export')}</span></button>
     </div>
-    <div className="sidebar-footer"><strong>NutriSurvey Pro</strong><small>Versi 2.0.0</small></div><button className="settings-trigger" aria-label="Pengaturan" onClick={onSettings}>⚙ <span>Pengaturan</span></button>
+    <div className="sidebar-footer"><strong>{t('app.name')} {t('app.suffix')}</strong><small>{t('version.label')} {APP_VERSION}</small></div><button className="settings-trigger" aria-label={t('action.settings')} onClick={onSettings}>⚙ <span>{t('action.settings')}</span></button>
   </nav>;
 }

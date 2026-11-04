@@ -69,3 +69,21 @@
 .donation-qris{width:240px;height:240px;object-fit:contain;border-radius:12px;border:1px solid var(--border)}
 .donation-footer{display:flex;flex-direction:column;align-items:center;gap:10px;width:100%}.donation-note{margin:0;font-size:12px;color:var(--muted);text-align:center}
 .donation-close{background:var(--primary);color:#fff;border:0;border-radius:10px;padding:10px 24px;font-size:14px;font-weight:600;cursor:pointer;width:100%;transition:opacity .15s}.donation-close:hover{opacity:.85}
+/* Layar HP landscape (dipakai di APK): sidebar jadi bilah atas yang ringkas */
+@media (orientation: landscape) and (max-height: 600px), (max-width: 700px) {
+  .app-shell{flex-direction:column}
+  .sidebar{position:sticky;top:0;bottom:auto;width:100%;flex-direction:row;align-items:center;gap:10px;padding:8px 12px;overflow-x:auto;overflow-y:hidden}
+  .sidebar-brand{flex:none}
+  .sidebar-brand p,.nav-group-label,.sidebar-footer,.update-banner small{display:none}
+  .update-banner{flex:none;flex-direction:row;align-items:center;padding:6px 10px}
+  .nav-group{display:flex;align-items:center;gap:6px;flex:none}
+  .nav-links,.nav-actions{display:flex;gap:6px;border:0;margin:0;padding:0}
+  .nav-links button,.nav-actions button{min-height:38px;padding:0 10px;white-space:nowrap}
+  .nav-links button.active:before{display:none}
+  .settings-trigger{width:auto;flex:none;margin-left:auto}
+  .main-content{width:100%;margin-left:0;padding:14px 16px}
+  .top-bar{margin-bottom:12px}
+  .section-header h2{font-size:22px}
+  .card{padding:14px}
+  .assessment-summary,.result-grid{margin-top:12px}
+}

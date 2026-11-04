@@ -91,12 +91,12 @@ jobs:
             - **Windows**: `.exe` (NSIS) atau `.msi`
             - **macOS**: `.dmg`
 
-            ### Apa yang baru di v2.1.0
-            - **Ekspor laporan PDF, DOCX, dan RTF** — pilih format saat "Ekspor Laporan".
-            - Laporan mengikuti template asli: Times New Roman, A4, garis header penuh, bagian HASIL PERHITUNGAN di halaman tersendiri.
-            - Angka laporan identik dengan Dashboard (perbaikan double counting dan target nutrisi).
-            - Database bawaan diperluas: FatSecret, NilaiGiziCom, NutriSurvey (indo.fta), Panganku Kemenkes 2017 — 10.000+ pangan.
-            - Perbaikan laporan RTF kosong di Word dan sinkronisasi database CSV.
+            ### Apa yang baru di v2.2.0
+            - **Interpretasi IMT Asia Pasifik** kini sesuai materi MNT: Underweight / Normal / Beresiko / Obes I / Obes II.
+            - **Penentuan BB untuk perhitungan energi**: BB aktual (malnutrisi–normal), BBI (overweight & obes I), BB adjusted (obes II ke atas); rumus BBI & BB adjusted sesuai slide (pria ≥160 cm / wanita ≥150 cm).
+            - **Satu file konfigurasi** `src/lib/app-config.ts` untuk versi dan bahasa aplikasi — ubah sekali, semua label & nomor versi ikut berubah (`npm run sync:version` menyinkronkan package.json → tauri.conf.json + Cargo.toml).
+            - **UI khusus layar landscape/HP di APK**: sidebar menjadi bilah atas ringkas, konten penuh lebar, kontrol lebih besar.
+            - Ekspor laporan PDF/DOCX/RTF (Times New Roman, A4, halaman hitungan diet terpisah) dan database 10.000+ pangan tetap tersedia.
 
             App akan mendeteksi update otomatis dari release berikutnya.
           releaseDraft: false

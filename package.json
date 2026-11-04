@@ -1,6 +1,6 @@
 {
   "name": "nutrisurvey-native",
-  "version": "2.1.0",
+  "version": "2.2.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -11,6 +11,7 @@
     "test:compile": "tsc --noEmit --allowImportingTsExtensions",
     "test:e2e": "playwright test tests/e2e/smoke.spec.ts",
     "typecheck": "tsc --noEmit",
+    "sync:version": "node scripts/sync-version.mjs",
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build"
